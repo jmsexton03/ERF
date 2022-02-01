@@ -22,6 +22,7 @@
 
 using namespace amrex;
 
+#if 0
 #ifdef AMREX_USE_SUNDIALS
 
 //! The stepper strategies
@@ -724,5 +725,26 @@ static int ProcessStage(realtype t, N_Vector y_data, void *user_data)
   call_post_update(S_data, t);
 
   return 0;
+}
+#endif
+#else
+void ERF::erf_advance(int level,
+                      MultiFab& cons_old,  MultiFab& cons_new,
+                      MultiFab& xvel_old, MultiFab& yvel_old, MultiFab& zvel_old,
+                      MultiFab& xvel_new, MultiFab& yvel_new, MultiFab& zvel_new,
+                      MultiFab& xmom_crse, MultiFab& ymom_crse, MultiFab& zmom_crse,
+                      MultiFab& source,
+                      std::array< MultiFab, AMREX_SPACEDIM>& flux,
+                      const amrex::Geometry fine_geom,
+                      const amrex::Real dt_advance, const amrex::Real time,
+                      amrex::InterpFaceRegister* ifr,
+                      const amrex::Real* dptr_dens_hse,
+                      const amrex::Real* dptr_pres_hse,
+                      const amrex::Real* dptr_rayleigh_tau,
+                      const amrex::Real* dptr_rayleigh_ubar,
+                      const amrex::Real* dptr_rayleigh_vbar,
+                      const amrex::Real* dptr_rayleigh_thetabar)
+{
+    BL_PROFILE_VAR("erf_advance()",erf_advance);
 }
 #endif
