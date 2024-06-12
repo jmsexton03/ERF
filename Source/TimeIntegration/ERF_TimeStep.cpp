@@ -107,15 +107,20 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
          if (amrex::MPMD::MyProc() == this_root) {
              if (rank_offset == 0) // the first program
              {
-                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
              else // the second program
              {
-                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
+         amrex::Print()<<my_H_arr(2,2,0)<<std::endl;
+         amrex::Print()<<my_L_arr(2,2,0)<<std::endl;
+         amrex::AllPrintToFile("output_HS_cpp.txt")<<FArrayBox(my_H_arr)<<std::endl;
+         amrex::AllPrintToFile("output_L_cpp.txt")<<FArrayBox(my_L_arr)<<std::endl;
+
     }
 #endif
 

@@ -11,6 +11,9 @@
 #include <MultiBlockContainer.H>
 #endif
 
+#include <mpi.h>
+#include <AMReX_MPMD.H>
+
 std::string inputs_name;
 
 using namespace amrex;
@@ -55,6 +58,7 @@ void add_par () {
 */
 int main (int argc, char* argv[])
 {
+
 #ifdef AMREX_USE_MPI
     MPI_Init(&argc, &argv);
 #endif
@@ -96,7 +100,8 @@ int main (int argc, char* argv[])
             }
         }
     }
-    amrex::Initialize(argc,argv,true,MPI_COMM_WORLD,add_par);
+    MPI_Comm comm = amrex::MPMD::Initialize(argc, argv);
+    amrex::Initialize(argc,argv,true,comm,add_par);
 
     // Save the inputs file name for later.
     if (!strchr(argv[1], '=')) {
@@ -230,7 +235,7 @@ int main (int argc, char* argv[])
     BL_PROFILE_VAR_STOP(pmain);
 
     amrex::Finalize();
-#ifdef AMREX_USE_MPI
-    MPI_Finalize();
+#ifdef AMREX_USE_MPI 
+    amrex::MPMD::Finalize();
 #endif
 }
