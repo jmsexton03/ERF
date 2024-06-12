@@ -708,6 +708,7 @@ private:
     // Wave coupling data
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> Hwave;
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> Lwave;
+    bool finished_wave = false;
 
     // array of flux registers
     amrex::Vector<amrex::YAFluxRegister*> advflux_reg;

@@ -102,6 +102,7 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
                      MPI_Recv(&nsealm, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
+	 if(nsealm > 0) {
          AMREX_ALWAYS_ASSERT_WITH_MESSAGE(nsealm <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
 
          if (amrex::MPMD::MyProc() == this_root) {
@@ -120,7 +121,10 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
          amrex::Print()<<my_L_arr(2,2,0)<<std::endl;
          amrex::AllPrintToFile("output_HS_cpp.txt")<<FArrayBox(my_H_arr)<<std::endl;
          amrex::AllPrintToFile("output_L_cpp.txt")<<FArrayBox(my_L_arr)<<std::endl;
-
+	 }
+	 else {
+	     finished_wave = true;
+	 }
     }
 #endif
 

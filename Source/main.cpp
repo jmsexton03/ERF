@@ -233,7 +233,7 @@ int main (int argc, char* argv[])
 
     // destroy timer for profiling
     BL_PROFILE_VAR_STOP(pmain);
-
+    MPI_Barrier(MPI_COMM_WORLD);
     amrex::Finalize();
 #ifdef AMREX_USE_MPI 
     amrex::MPMD::Finalize();
