@@ -245,6 +245,12 @@ ERF::init_stuff (int lev, const BoxArray& ba, const DistributionMapping& dm,
     }
 #endif
 
+
+#ifdef ERF_USE_WW3_COUPLING
+    Hwave[lev] = std::make_unique<MultiFab>(ba,dm,1,0);
+    Lwave[lev] = std::make_unique<MultiFab>(ba,dm,1,0);
+#endif
+
 #if defined(ERF_USE_RRTMGP)
     //*********************************************************
     // Radiation heating source terms

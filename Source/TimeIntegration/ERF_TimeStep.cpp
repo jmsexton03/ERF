@@ -63,6 +63,24 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
                        << " with dt = " << dt[lev] << std::endl;
     }
 
+// MY EDITS HERE
+ 
+#ifdef ERF_USE_WW3_COUPLING
+    for ( MFIter mfi(*Hwave[lev],false); mfi.isValid(); ++mfi)
+    {
+         //auto my_H_ptr = Hwave[lev]->array(mfi);
+         //auto my_L_ptr = Lwave[lev]->array(mfi);
+         // How to declare my_H_ptr directly?
+         amrex::Array4<Real> my_H_ptr = Hwave[lev]->array(mfi);
+         
+         amrex::Array4<Real> my_L_ptr = Lwave[lev]->array(mfi);
+
+         // PUT MPI_RECEIVE HERE
+    }
+#endif
+
+// END MY EDITS
+
     // Advance a single level for a single time step
     Advance(lev, time, dt[lev], istep[lev], nsubsteps[lev]);
 
