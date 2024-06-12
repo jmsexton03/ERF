@@ -1,5 +1,7 @@
 #include <ERF.H>
 #include <Utils.H>
+#include <mpi.h>
+#include <AMReX_MPMD.H>
 
 using namespace amrex;
 
@@ -63,19 +65,57 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
                        << " with dt = " << dt[lev] << std::endl;
     }
 
-// MY EDITS HERE
- 
 #ifdef ERF_USE_WW3_COUPLING
     for ( MFIter mfi(*Hwave[lev],false); mfi.isValid(); ++mfi)
     {
          //auto my_H_ptr = Hwave[lev]->array(mfi);
          //auto my_L_ptr = Lwave[lev]->array(mfi);
+         const auto & bx = mfi.tilebox();
          // How to declare my_H_ptr directly?
-         amrex::Array4<Real> my_H_ptr = Hwave[lev]->array(mfi);
-         
-         amrex::Array4<Real> my_L_ptr = Lwave[lev]->array(mfi);
+         amrex::Array4<Real> my_H_arr = Hwave[lev]->array(mfi);         
+         amrex::Array4<Real> my_L_arr = Lwave[lev]->array(mfi);
 
-         // PUT MPI_RECEIVE HERE
+         Real* my_H_ptr = my_H_arr.dataPtr();
+         Real* my_L_ptr = my_L_arr.dataPtr();
+
+         int rank_offset = amrex::MPMD::MyProc() - amrex::ParallelDescriptor::MyProc();
+         int this_root, other_root;
+         if (rank_offset == 0) { // First program
+             this_root = 0;
+             other_root = amrex::ParallelDescriptor::NProcs();
+         } else {
+             this_root = rank_offset;
+             other_root = 0;
+         }
+
+    //    std::cout<<"My rank is "<<amrex::MPMD::MyProc()<<" out of "<<amrex::MPMD::NProcs()<<" total ranks in MPI_COMM_WORLD communicator "<<MPI_COMM_WORLD<< "and my rank is "<<amrex::ParallelDescriptor::MyProc()<<" out of "<<amrex::ParallelDescriptor::NProcs()<<" total ranks in my part of the split communicator for the appnum (color) "<< amrex::MPMD::AppNum()<<std::endl;
+         int nsealm=2147483647; // sanity check
+
+         //JUST RECV
+         if (amrex::MPMD::MyProc() == this_root) {
+             if (rank_offset == 0) // the first program
+             {
+                     MPI_Recv(&nsealm, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             }
+             else // the second program
+             {
+                     MPI_Recv(&nsealm, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             }
+         }
+         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(nsealm <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
+
+         if (amrex::MPMD::MyProc() == this_root) {
+             if (rank_offset == 0) // the first program
+             {
+                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             }
+             else // the second program
+             {
+                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             }
+         }
     }
 #endif
 
