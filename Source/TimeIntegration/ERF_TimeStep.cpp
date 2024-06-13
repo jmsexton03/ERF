@@ -97,36 +97,38 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
              if (rank_offset == 0) // the first program
              {
                      MPI_Recv(&nx, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		     MPI_Recv(&ny, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		     MPI_Recv(&ny, 1, MPI_INT, other_root, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
              else // the second program
              {
                      MPI_Recv(&nx, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		     MPI_Recv(&ny, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		     MPI_Recv(&ny, 1, MPI_INT, other_root, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
-	 if((nx+1)*(ny) > 0) {
-	     int nsealm = (nx+1)*ny;
+	 if((nx)*(ny) > 0) {
+	     int nsealm = (nx)*ny;
 	     Print()<<nsealm<<std::endl;
 	     Print()<<nx<<std::endl;
 	     Print()<<ny<<std::endl;
-	     AMREX_ALWAYS_ASSERT_WITH_MESSAGE((nx+1)*ny <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
+	     AMREX_ALWAYS_ASSERT_WITH_MESSAGE((nx)*ny <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
 
          if (amrex::MPMD::MyProc() == this_root) {
              if (rank_offset == 0) // the first program
              {
-                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_H_ptr, nsealm, MPI_DOUBLE, other_root, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_DOUBLE, other_root, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
              else // the second program
              {
-                     MPI_Recv(my_H_ptr, nsealm, MPI_INT, other_root, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                     MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_H_ptr, nsealm, MPI_DOUBLE, other_root, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(my_L_ptr, nsealm, MPI_DOUBLE, other_root, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
 	 amrex::Print()<<"Just recieved "<<nsealm<<"as a double*"<<std::endl;
-         amrex::Print()<<my_H_arr(2,2,0)<<std::endl;
-         amrex::Print()<<my_L_arr(2,2,0)<<std::endl;
+         amrex::Print()<<my_H_arr(192,92,0)<<std::endl;
+         amrex::Print()<<my_L_arr(192,92,0)<<std::endl;
+	 amrex::Print()<<my_H_ptr[192-0+(92-0)*193]<<std::endl;
+         amrex::Print()<<my_L_ptr[192-0+(92-0)*193]<<std::endl;
          amrex::AllPrintToFile("output_HS_cpp.txt")<<FArrayBox(my_H_arr)<<std::endl;
          amrex::AllPrintToFile("output_L_cpp.txt")<<FArrayBox(my_L_arr)<<std::endl;
 	 }
