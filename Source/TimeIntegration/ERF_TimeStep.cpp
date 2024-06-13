@@ -72,7 +72,7 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
          //auto my_L_ptr = Lwave[lev]->array(mfi);
          const auto & bx = mfi.tilebox();
          // How to declare my_H_ptr directly?
-         amrex::Array4<Real> my_H_arr = Hwave[lev]->array(mfi);         
+         amrex::Array4<Real> my_H_arr = Hwave[lev]->array(mfi);
          amrex::Array4<Real> my_L_arr = Lwave[lev]->array(mfi);
 
          Real* my_H_ptr = my_H_arr.dataPtr();
@@ -89,21 +89,28 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
          }
 
     //    std::cout<<"My rank is "<<amrex::MPMD::MyProc()<<" out of "<<amrex::MPMD::NProcs()<<" total ranks in MPI_COMM_WORLD communicator "<<MPI_COMM_WORLD<< "and my rank is "<<amrex::ParallelDescriptor::MyProc()<<" out of "<<amrex::ParallelDescriptor::NProcs()<<" total ranks in my part of the split communicator for the appnum (color) "<< amrex::MPMD::AppNum()<<std::endl;
-         int nsealm=2147483647; // sanity check
+         int nx=2147483647; // sanity check
+         int ny=2147483647; // sanity check
 
          //JUST RECV
          if (amrex::MPMD::MyProc() == this_root) {
              if (rank_offset == 0) // the first program
              {
-                     MPI_Recv(&nsealm, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(&nx, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		     MPI_Recv(&ny, 1, MPI_INT, other_root, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
              else // the second program
              {
-                     MPI_Recv(&nsealm, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     MPI_Recv(&nx, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		     MPI_Recv(&ny, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
-	 if(nsealm > 0) {
-         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(nsealm <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
+	 if((nx+1)*(ny) > 0) {
+	     int nsealm = (nx+1)*ny;
+	     Print()<<nsealm<<std::endl;
+	     Print()<<nx<<std::endl;
+	     Print()<<ny<<std::endl;
+	     AMREX_ALWAYS_ASSERT_WITH_MESSAGE((nx+1)*ny <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
 
          if (amrex::MPMD::MyProc() == this_root) {
              if (rank_offset == 0) // the first program
@@ -117,6 +124,7 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
                      MPI_Recv(my_L_ptr, nsealm, MPI_INT, other_root, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
          }
+	 amrex::Print()<<"Just recieved "<<nsealm<<"as a double*"<<std::endl;
          amrex::Print()<<my_H_arr(2,2,0)<<std::endl;
          amrex::Print()<<my_L_arr(2,2,0)<<std::endl;
          amrex::AllPrintToFile("output_HS_cpp.txt")<<FArrayBox(my_H_arr)<<std::endl;
@@ -126,6 +134,8 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
 	     finished_wave = true;
 	 }
     }
+    Hwave[lev]->FillBoundary();
+    Lwave[lev]->FillBoundary();
 #endif
 
 // END MY EDITS
