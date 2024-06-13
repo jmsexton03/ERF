@@ -276,6 +276,13 @@ ERF::ERF ()
         Hwave[lev] = nullptr;
         Lwave[lev] = nullptr;
     }
+    Hwave_onegrid.resize(nlevs_max);
+    Lwave_onegrid.resize(nlevs_max);
+    for (int lev = 0; lev < max_level; ++lev)
+    {
+        Hwave_onegrid[lev] = nullptr;
+        Lwave_onegrid[lev] = nullptr;
+    }
 
     // Theta prim for MOST
     Theta_prim.resize(nlevs_max);

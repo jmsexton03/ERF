@@ -66,14 +66,14 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
     }
 
 #ifdef ERF_USE_WW3_COUPLING
-    for ( MFIter mfi(*Hwave[lev],false); mfi.isValid(); ++mfi)
+    for ( MFIter mfi(*Hwave_onegrid[lev],false); mfi.isValid(); ++mfi)
     {
          //auto my_H_ptr = Hwave[lev]->array(mfi);
          //auto my_L_ptr = Lwave[lev]->array(mfi);
          const auto & bx = mfi.tilebox();
          // How to declare my_H_ptr directly?
-         amrex::Array4<Real> my_H_arr = Hwave[lev]->array(mfi);
-         amrex::Array4<Real> my_L_arr = Lwave[lev]->array(mfi);
+         amrex::Array4<Real> my_H_arr = Hwave_onegrid[lev]->array(mfi);
+         amrex::Array4<Real> my_L_arr = Lwave_onegrid[lev]->array(mfi);
 
          Real* my_H_ptr = my_H_arr.dataPtr();
          Real* my_L_ptr = my_L_arr.dataPtr();
@@ -104,13 +104,17 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
                      MPI_Recv(&nx, 1, MPI_INT, other_root, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		     MPI_Recv(&ny, 1, MPI_INT, other_root, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
              }
+	     //This may not be necessary
+	     ParallelDescriptor::Bcast(&nx, 1);
+	     ParallelDescriptor::Bcast(&ny, 1);
          }
 	 if((nx)*(ny) > 0) {
 	     int nsealm = (nx)*ny;
-	     Print()<<nsealm<<std::endl;
-	     Print()<<nx<<std::endl;
-	     Print()<<ny<<std::endl;
-	     AMREX_ALWAYS_ASSERT_WITH_MESSAGE((nx)*ny <= bx.numPts(), "total number of points being filled exceeds the size of the current box\n");
+             Print()<<nsealm<<std::endl;
+             Print()<<nx<<std::endl;
+             Print()<<ny<<std::endl;
+             Print()<<bx.numPts()<<"\t"<<bx<<std::endl;
+	     AMREX_ALWAYS_ASSERT_WITH_MESSAGE((nx)*ny <= bx.numPts() || bx.numPts() == 0, "total number of points being filled exceeds the size of the current box\n");
 
          if (amrex::MPMD::MyProc() == this_root) {
              if (rank_offset == 0) // the first program
@@ -125,10 +129,13 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
              }
          }
 	 amrex::Print()<<"Just recieved "<<nsealm<<"as a double*"<<std::endl;
-         amrex::Print()<<my_H_arr(192,92,0)<<std::endl;
-         amrex::Print()<<my_L_arr(192,92,0)<<std::endl;
-	 amrex::Print()<<my_H_ptr[192-0+(92-0)*193]<<std::endl;
-         amrex::Print()<<my_L_ptr[192-0+(92-0)*193]<<std::endl;
+
+	 if(bx.contains(IntVect(192,2,0))) {
+	 std::cout<<my_H_arr(192,92,0)<<std::endl;
+         std::cout<<my_L_arr(192,92,0)<<std::endl;
+	 std::cout<<my_H_ptr[192-0+(92-0)*193]<<std::endl;
+         std::cout<<my_L_ptr[192-0+(92-0)*193]<<std::endl;
+	 }
          amrex::AllPrintToFile("output_HS_cpp.txt")<<FArrayBox(my_H_arr)<<std::endl;
          amrex::AllPrintToFile("output_L_cpp.txt")<<FArrayBox(my_L_arr)<<std::endl;
 	 }
@@ -136,7 +143,11 @@ ERF::timeStep (int lev, Real time, int /*iteration*/)
 	     finished_wave = true;
 	 }
     }
+    //May need to be Redistribute
+    //    ParallelCopy(Hwave[lev],Hwave_onegrid[lev],0,0,1,0);
+    Hwave[lev]->ParallelCopy(*Hwave_onegrid[lev],geom[lev].periodicity());
     Hwave[lev]->FillBoundary();
+    Lwave[lev]->ParallelCopy(*Lwave_onegrid[lev],geom[lev].periodicity());
     Lwave[lev]->FillBoundary();
 #endif
 

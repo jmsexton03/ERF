@@ -708,6 +708,8 @@ private:
     // Wave coupling data
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> Hwave;
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> Lwave;
+    amrex::Vector<std::unique_ptr<amrex::MultiFab>> Hwave_onegrid;
+    amrex::Vector<std::unique_ptr<amrex::MultiFab>> Lwave_onegrid;
     bool finished_wave = false;
 
     // array of flux registers
