@@ -24,7 +24,7 @@
   use module_model_constants, only:         &
     & karman, g, p1000mb,                   &
     & cp, r_d, r_v, rcp, xlv, xlf, xls,     &
-    & svp1, svp2, svp3, p608, ep_2, rvovrd, &                                                                         
+    & svp1, svp2, svp3, p608, ep_2, rvovrd, &
     & cpv, cliq, cice, svpt0
 
  implicit none
@@ -89,7 +89,7 @@
 
 ! grav   = g
 ! t0c    = svpt0        != 273.15
-! ep_3   = 1.-ep_2      != 0.378                                                                                   
+! ep_3   = 1.-ep_2      != 0.378
 ! gtr    = grav/tref
 ! rk     = cp/r_d
 ! tv0    = p608*tref

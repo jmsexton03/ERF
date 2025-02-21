@@ -14,6 +14,65 @@
 
 using namespace amrex;
 
+extern "C" void mynn_bl_driver_test(int initflag);
+
+//Real* is ims:ime, Real** ins ims:ime,kms:kme
+extern "C" void mynn_bl_driver(
+       int initflag, int restart, int cycling,
+       Real delt, Real dz /*ims:ime*/,Real dx/*ims:ime,kms:kme*/,Real* znt,
+       Real** u,Real ** v,Real** w,Real** th,Real** sqv3d,Real** sqc3d,Real** sqi3d,
+       Real** sqs3d,Real** qnc,Real** qni,
+       Real** qnwfa,Real** qnifa,Real** qnbca,Real** ozone,
+       Real** p,Real** exner,Real** rho,Real** t3d,
+       Real* xland,Real* ts,Real* qsfc,Real* ps,
+       Real* ust,Real* ch,Real* hfx,Real* qfx,Real* rmol,Real* wspd,
+       Real* uoce,Real* voce,                       //ocean current
+       Real** qke,Real** qke_adv,
+       Real** sh3d,Real** sm3d,
+       int nchem,int kdvel,int ndvel,               //smoke/chem variables
+       Real*** chem3d,Real** vdep,                    //dimension(ims:ime,kms:kme,nchem) and dimension(ims:ime, ndvel)
+       Real* frp,Real* emis_ant_no,
+       bool mix_chem, bool enh_mix,                //note: these arrays/flags are still under development
+       bool rrfs_sd, bool smoke_dbg,               //end smoke/chem variables
+       Real** tsq,Real** qsq,Real** cov,
+       Real** rublten,Real** rvblten,Real** rthblten,
+       Real** rqvblten,Real** rqcblten,Real** rqiblten,
+       Real** rqncblten,Real** rqniblten,Real** rqsblten,
+       Real** rqnwfablten,Real** rqnifablten,
+       Real** rqnbcablten,Real** dozone,
+       Real** exch_h,Real** exch_m,
+       Real* pblh,Real* kpbl,
+       Real** el_pbl,
+       Real** dqke,Real** qwt,Real** qshear,Real** qbuoy,Real** qdiss,
+       Real** qc_bl,Real** qi_bl,Real** cldfra_bl,
+       int bl_mynn_tkeadvect,
+       int tke_budget,
+       int bl_mynn_cloudpdf,
+       int bl_mynn_mixlength,
+       int icloud_bl,
+       Real closure,
+       int bl_mynn_edmf,
+       int bl_mynn_edmf_mom,
+       int bl_mynn_edmf_tke,
+       int bl_mynn_mixscalars,
+       int bl_mynn_output,
+       int bl_mynn_cloudmix, int bl_mynn_mixqt,
+       Real** edmf_a,Real** edmf_w,Real** edmf_qt,
+       Real** edmf_thl,Real** edmf_ent,Real** edmf_qc,
+       Real** sub_thl3D,Real** sub_sqv3D,
+       Real** det_thl3D,Real** det_sqv3D,
+       Real* maxwidth,Real* maxMF,Real* ztop_plume,
+       Real* ktop_plume,
+       int spp_pbl,Real** pattern_spp_pbl,
+       Real** rthraten,
+       int FLAG_QC, int FLAG_QI, int FLAG_QNC,
+       int FLAG_QNI, int FLAG_QS,
+       int FLAG_QNWFA, int FLAG_QNIFA,
+       int FLAG_QNBCA, int FLAG_OZONE,
+       int IDS, int IDE, int JDS, int JDE, int KDS, int KDE,
+       int IMS, int IME, int JMS, int JME, int KMS, int KME,
+       int ITS, int ITE, int JTS, int JTE, int KTS, int KTE         );
+
 extern "C" void mynn_tendencies_cc(const int& kts,const int& kte, const Real & delt,
                                    /*in*/ const Real* dz,
                                    /*in*/ const Real* rho,
@@ -4191,14 +4250,201 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
 {
     Print()<<"reached mynnedmf"<<std::endl;
     {
-      int n=1;
-      Real a=1;
-      Real b=1;
-      Real c=1;
-      Real d=1;
-      Real x=0;
-      tridiag2_cc(n,&a,&b,&c,&d,&x);
-      printf("ran tridiag2_cc with n=%d and got %g %g %g %g %g",n,a,b,c,d,x);
+      //Real* is ims:ime, Real** ins ims:ime,kms:kme
+      int initflag;
+      int restart;
+      int cycling;
+      Real delt;
+      Real dz /*ims:ime*/;
+      Real dx/*ims:ime,kms:kme*/;
+      Real* znt;
+      Real** u;
+      Real** v;
+      Real** w;
+      Real** th;
+      Real** sqv3d;
+      Real** sqc3d;
+      Real** sqi3d;
+      Real** sqs3d;
+      Real** qnc;
+      Real** qni;
+      Real** qnwfa;
+      Real** qnifa;
+      Real** qnbca;
+      Real** ozone;
+      Real** p;
+      Real** exner;
+      Real** rho;
+      Real** t3d;
+      Real* xland;
+      Real* ts;
+      Real* qsfc;
+      Real* ps;
+      Real* ust;
+      Real* ch;
+      Real* hfx;
+      Real* qfx;
+      Real* rmol;
+      Real* wspd;
+      Real* uoce;
+      Real* voce;                       //ocean current
+      Real** qke;
+      Real** qke_adv;
+      Real** sh3d;
+      Real** sm3d;
+      int nchem;
+      int kdvel;
+      int ndvel;               //smoke/chem variables
+      Real*** chem3d;
+      Real** vdep;                    //dimension(ims:ime,kms:kme,nchem) and dimension(ims:ime, ndvel)
+      Real* frp;
+      Real* emis_ant_no;
+      //note: these arrays/flags are still under development
+      bool mix_chem;
+      bool enh_mix;
+      bool rrfs_sd;
+      bool smoke_dbg;               //end smoke/chem variables
+      Real** tsq;
+      Real** qsq;
+      Real** cov;
+      Real** rublten;
+      Real** rvblten;
+      Real** rthblten;
+      Real** rqvblten;
+      Real** rqcblten;
+      Real** rqiblten;
+      Real** rqncblten;
+      Real** rqniblten;
+      Real** rqsblten;
+      Real** rqnwfablten;
+      Real** rqnifablten;
+      Real** rqnbcablten;
+      Real** dozone;
+      Real** exch_h;
+      Real** exch_m;
+      Real* pblh;
+      Real* kpbl;
+      Real** el_pbl;
+      Real** dqke;
+      Real** qwt;
+      Real** qshear;
+      Real** qbuoy;
+      Real** qdiss;
+      Real** qc_bl;
+      Real** qi_bl;
+      Real** cldfra_bl;
+      int bl_mynn_tkeadvect;
+      int tke_budget;
+      int bl_mynn_cloudpdf;
+      int bl_mynn_mixlength;
+      int icloud_bl;
+      Real closure;
+      int bl_mynn_edmf;
+      int bl_mynn_edmf_mom;
+      int bl_mynn_edmf_tke;
+      int bl_mynn_mixscalars;
+      int bl_mynn_output;
+      int bl_mynn_cloudmix;
+      int bl_mynn_mixqt;
+      Real** edmf_a;
+      Real** edmf_w;
+      Real** edmf_qt;
+      Real** edmf_thl;
+      Real** edmf_ent;
+      Real** edmf_qc;
+      Real** sub_thl3D;
+      Real** sub_sqv3D;
+      Real** det_thl3D;
+      Real** det_sqv3D;
+      Real* maxwidth;
+      Real* maxMF;
+      Real* ztop_plume;
+      Real* ktop_plume;
+      int spp_pbl;
+      Real** pattern_spp_pbl;
+      Real** rthraten;
+      int FLAG_QC;
+      int FLAG_QI;
+      int FLAG_QNC;
+      int FLAG_QNI;
+      int FLAG_QS;
+      int FLAG_QNWFA;
+      int FLAG_QNIFA;
+      int FLAG_QNBCA;
+      int FLAG_OZONE;
+      int IDS;
+      int IDE;
+      int JDS;
+      int JDE;
+      int KDS;
+      int KDE;
+      int IMS;
+      int IME;
+      int JMS;
+      int JME;
+      int KMS;
+      int KME;
+      int ITS;
+      int ITE;
+      int JTS;
+      int JTE;
+      int KTS;
+      int KTE;
+      mynn_bl_driver_test(        initflag);
+      mynn_bl_driver(        initflag,  restart,  cycling,
+        delt,  dz /*ims:ime*/, dx/*ims:ime,kms:kme*/, znt,
+        u, v, w, th, sqv3d, sqc3d, sqi3d,
+        sqs3d, qnc, qni,
+        qnwfa, qnifa, qnbca, ozone,
+        p, exner, rho, t3d,
+        xland, ts, qsfc, ps,
+        ust, ch, hfx, qfx, rmol, wspd,
+        uoce, voce,                       //ocean current
+        qke, qke_adv,
+        sh3d, sm3d,
+        nchem, kdvel, ndvel,               //smoke/chem variables
+        chem3d, vdep,                    //dimension(ims:ime,kms:kme,nchem) and dimension(ims:ime, ndvel)
+        frp, emis_ant_no,
+        mix_chem,  enh_mix,                //note: these arrays/flags are still under development
+        rrfs_sd,  smoke_dbg,               //end smoke/chem variables
+        tsq, qsq, cov,
+        rublten, rvblten, rthblten,
+        rqvblten, rqcblten, rqiblten,
+        rqncblten, rqniblten, rqsblten,
+        rqnwfablten, rqnifablten,
+        rqnbcablten, dozone,
+        exch_h, exch_m,
+        pblh, kpbl,
+        el_pbl,
+        dqke, qwt, qshear, qbuoy, qdiss,
+        qc_bl, qi_bl, cldfra_bl,
+        bl_mynn_tkeadvect,
+        tke_budget,
+        bl_mynn_cloudpdf,
+        bl_mynn_mixlength,
+        icloud_bl,
+        closure,
+        bl_mynn_edmf,
+        bl_mynn_edmf_mom,
+        bl_mynn_edmf_tke,
+        bl_mynn_mixscalars,
+        bl_mynn_output,
+        bl_mynn_cloudmix,  bl_mynn_mixqt,
+        edmf_a, edmf_w, edmf_qt,
+        edmf_thl, edmf_ent, edmf_qc,
+        sub_thl3D, sub_sqv3D,
+        det_thl3D, det_sqv3D,
+        maxwidth, maxMF, ztop_plume,
+        ktop_plume,
+        spp_pbl, pattern_spp_pbl,
+        rthraten,
+        FLAG_QC,  FLAG_QI,  FLAG_QNC,
+        FLAG_QNI,  FLAG_QS,
+        FLAG_QNWFA,  FLAG_QNIFA,
+        FLAG_QNBCA,  FLAG_OZONE,
+        IDS,  IDE,  JDS,  JDE,  KDS,  KDE,
+        IMS,  IME,  JMS,  JME,  KMS,  KME,
+        ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );
     }
     const bool use_terrain = (z_phys_nd != nullptr);
     const bool use_most    = (most != nullptr);

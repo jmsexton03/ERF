@@ -17,41 +17,41 @@
    REAL    , PARAMETER :: g = 9.81  ! acceleration due to gravity (m {s}^-2)
 
    REAL    , PARAMETER :: r_d          = 287.       ! gas constant of dry air (J deg^-1 kg^-1)
-   REAL    , PARAMETER :: cp           = 7.*r_d/2.  ! 
+   REAL    , PARAMETER :: cp           = 7.*r_d/2.  !
 
    REAL    , PARAMETER :: r_v          = 461.6      ! gas constant for water vapor (J deg^-1 kg^-1)
    REAL    , PARAMETER :: cv           = cp-r_d     ! Specific heat of air at contant volume (J deg^-1 kg^-1)
    REAL    , PARAMETER :: cpv          = 4.*r_v
-   REAL    , PARAMETER :: cvv          = cpv-r_v    ! 
+   REAL    , PARAMETER :: cvv          = cpv-r_v    !
    REAL    , PARAMETER :: cvpm         = -cv/cp
    REAL    , PARAMETER :: cliq         = 4190.      ! specific heat of liquid water at 0^oC
    REAL    , PARAMETER :: cice         = 2106.      ! specific heat of ice at 0^oC
    REAL    , PARAMETER :: psat         = 610.78
-   REAL    , PARAMETER :: rcv          = r_d/cv     ! 
+   REAL    , PARAMETER :: rcv          = r_d/cv     !
    REAL    , PARAMETER :: rcp          = r_d/cp
    REAL    , PARAMETER :: rovg         = r_d/g
    REAL    , PARAMETER :: c2           = cp * rcv
    real    , parameter :: mwdry        = 28.966     ! molecular weight of dry air (g/mole)
 
    REAL    , PARAMETER :: p1000mb      = 100000.    ! pressure at 1000 hPa (pa)
-   REAL    , PARAMETER :: t0           = 300.       ! base state tempertaure (K) 
+   REAL    , PARAMETER :: t0           = 300.       ! base state tempertaure (K)
    REAL    , PARAMETER :: p0           = p1000mb    ! base state surface pressure (pa)
    REAL    , PARAMETER :: cpovcv       = cp/(cp-r_d)
    REAL    , PARAMETER :: cvovcp       = 1./cpovcv
    REAL    , PARAMETER :: rvovrd       = r_v/r_d
 
-   REAL    , PARAMETER :: reradius     = 1./6370.0e03  ! reciprocal of earth radius (m^-1) 
+   REAL    , PARAMETER :: reradius     = 1./6370.0e03  ! reciprocal of earth radius (m^-1)
 
    REAL    , PARAMETER :: asselin      = .025
 !   REAL    , PARAMETER :: asselin      = .0
    REAL    , PARAMETER :: cb           = 25.
 
-   REAL    , PARAMETER :: XLV0         = 3.15E6       !  constant defined for calculation of latent heating 
-   REAL    , PARAMETER :: XLV1         = 2370.        !  constant defined for calculation of latent heating 
+   REAL    , PARAMETER :: XLV0         = 3.15E6       !  constant defined for calculation of latent heating
+   REAL    , PARAMETER :: XLV1         = 2370.        !  constant defined for calculation of latent heating
    REAL    , PARAMETER :: XLS0         = 2.905E6      !  constant defined for calculation of latent heating
    REAL    , PARAMETER :: XLS1         = 259.532      !  constant defined for calculation of latent heating
 
-   REAL    , PARAMETER :: XLS          = 2.85E6      ! latent heat of sublimation of water at 0^oC (J kg^-1) 
+   REAL    , PARAMETER :: XLS          = 2.85E6      ! latent heat of sublimation of water at 0^oC (J kg^-1)
    REAL    , PARAMETER :: XLV          = 2.5E6       ! latent heat of vaporization of water at 0^oC (J kg^-1)
    REAL    , PARAMETER :: XLF          = 3.50E5      ! latent heat of fusion of water at 0^oC (J kg^-1)
 
@@ -81,15 +81,15 @@
    REAL    , PARAMETER ::  EP_2=R_d/R_v     ! constant for specific humidity calculation (dimensionless)
    REAL    , PARAMETER ::  KARMAN=0.4               ! von Karman constant
    REAL    , PARAMETER ::  EOMEG=7.2921E-5          ! angular velocity of rotation (rad^-1)
-   REAL    , PARAMETER ::  STBOLT=5.67051E-8        ! Stefan-Boltzmann constant (W m^-2 deg^-4) 
+   REAL    , PARAMETER ::  STBOLT=5.67051E-8        ! Stefan-Boltzmann constant (W m^-2 deg^-4)
 
-   REAL    , PARAMETER ::  prandtl = 1./3.0   ! prandtl's mixing length (m) 
+   REAL    , PARAMETER ::  prandtl = 1./3.0   ! prandtl's mixing length (m)
                                               ! constants for w-damping option
    REAL    , PARAMETER ::  w_alpha = 0.3      ! strength m/s/s
    REAL    , PARAMETER ::  w_beta  = 1.0      ! activation cfl number
 
-       REAL , PARAMETER ::  pq0=379.90516     ! 
-       REAL , PARAMETER ::  epsq2=0.2         ! initial TKE for camuw PBL scheme (m2 s^-2) 
+       REAL , PARAMETER ::  pq0=379.90516     !
+       REAL , PARAMETER ::  epsq2=0.2         ! initial TKE for camuw PBL scheme (m2 s^-2)
        REAL , PARAMETER ::  a2=17.2693882
        REAL , PARAMETER ::  a3=273.16
        REAL , PARAMETER ::  a4=35.86
@@ -141,7 +141,7 @@
 
    INTEGER , PARAMETER :: PLANET_YEAR = 365   ! number of days in a calendar year
    REAL , PARAMETER :: OBLIQUITY = 23.5       ! solar obliquity (degree)
-   REAL , PARAMETER :: ECCENTRICITY = 0.014   ! Orbital eccentricity 
+   REAL , PARAMETER :: ECCENTRICITY = 0.014   ! Orbital eccentricity
    REAL , PARAMETER :: SEMIMAJORAXIS = 1.0    ! Ratio of semi-major axis of planet / semi-major axis of earth
    REAL , PARAMETER :: zero_date = 0.0        ! Time of perihelion passage
    REAL , PARAMETER :: EQUINOX_FRACTION= 0.0  ! Fraction into the year (from perhelion) of the occurrence of the Northern Spring Equinox
