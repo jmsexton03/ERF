@@ -4270,7 +4270,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         const Dim3 hi = amrex::ubound(box);
 
         for (int y = lo.y; y <= hi.y; ++y) { 
-              
+
       //Real* is ims:ime, Real** ins ims:ime,kms:kme
       int initflag;
       int restart;
@@ -4411,6 +4411,14 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       int JTE;
       int KTS;
       int KTE;
+      for (int x = lo.x; x <= hi.x; ++x) {
+	for (int z = lo.z; z <= hi.z; ++z) { //kts to kte
+              int i=x;
+              int j=y;
+              xland[i]=xland_arr(i,j,k);
+
+	  }
+      }
       mynn_bl_driver_test(        initflag);
       mynn_bl_driver(        initflag,  restart,  cycling,
         delt,  dz /*ims:ime*/, dx/*ims:ime,kms:kme*/, znt,
