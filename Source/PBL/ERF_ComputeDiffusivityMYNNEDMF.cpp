@@ -4279,7 +4279,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         MultiFab & ts_mf = garbage;
         MultiFab & qsfc_mf = garbage;
         MultiFab & ps_mf = garbage;
-        MultiFab & ust_mf = garbage;
+        const MultiFab* ust_mf = most->get_u_star(level);
         MultiFab & ch_mf = garbage;
         MultiFab & hfx_mf = garbage;
         MultiFab & qfx_mf = garbage;
@@ -4311,7 +4311,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         MultiFab & dozone_mf = garbage;
         MultiFab & exch_h_mf = garbage;
         MultiFab & exch_m_mf = garbage;
-        MultiFab & pblh_mf = garbage;
+        const MultiFab* pblh_mf = most->get_pblh(level);
         MultiFab & kpbl_mf = garbage;
         MultiFab & el_pbl_mf = garbage;
         MultiFab & dqke_mf = garbage;
@@ -4379,7 +4379,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         const Array4<Real>& ts_arr = ts_mf.array(mfi);
         const Array4<Real>& qsfc_arr = qsfc_mf.array(mfi);
         const Array4<Real>& ps_arr = ps_mf.array(mfi);
-        const Array4<Real>& ust_arr = ust_mf.array(mfi);
+        const Array4<const Real>& ust_arr = ust_mf->array(mfi);
         const Array4<Real>& ch_arr = ch_mf.array(mfi);
         const Array4<Real>& hfx_arr = hfx_mf.array(mfi);
         const Array4<Real>& qfx_arr = qfx_mf.array(mfi);
@@ -4411,7 +4411,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         const Array4<Real>& dozone_arr = dozone_mf.array(mfi);
         const Array4<Real>& exch_h_arr = exch_h_mf.array(mfi);
         const Array4<Real>& exch_m_arr = exch_m_mf.array(mfi);
-        const Array4<Real>& pblh_arr = pblh_mf.array(mfi);
+        const Array4<const Real>& pblh_arr = pblh_mf->array(mfi);
         const Array4<Real>& kpbl_arr = kpbl_mf.array(mfi);
         const Array4<Real>& el_pbl_arr = el_pbl_mf.array(mfi);
         const Array4<Real>& dqke_arr = dqke_mf.array(mfi);
@@ -4767,6 +4767,8 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         int i=x;
         int j=y;
         xland_arrD(i)=xland_arr(i,j,0);
+        ust_arrD(i)=ust_arr(i,j,0);
+        pblh_arrD(i)=pblh_arr(i,j,0);
         for (int z = lo.z; z <= hi.z; ++z) { //kts to kte
               int k=z;
               u_arrD(i,k)=uvel(i,j,k);
