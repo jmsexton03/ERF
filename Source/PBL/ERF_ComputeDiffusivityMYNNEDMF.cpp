@@ -4266,9 +4266,23 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         const Array4<Real const>& vvel      = yvel.array(mfi);
         const Array4<int const>& xland_arr  = xland_mf->array(mfi);
 
-        const Dim3 lo = amrex::lbound(box);
-        const Dim3 hi = amrex::ubound(box);
-
+        const Dim3 lo = amrex::lbound(bx);
+        const Dim3 hi = amrex::ubound(bx);
+        int kts_cc=lo.z;
+        int kte_cc=hi.z;
+        int kts=lo.z+1; //start with fortran numbering for consistency
+        int kte=hi.z+1; //start with fortran numbering for consistency
+        int ktf=kte_cc;
+        int itf=geom.ProbHi(1);
+        const Box &dbx = geom.Domain();
+        const int ims=0;
+        const int ime=3;
+        const int kms=0;
+        const int kme=63;
+        /*
+          const int kms=0;//geom.ProbLo(2);
+          const int kme=89;//geom.ProbHi(2);*/
+        AMREX_ALWAYS_ASSERT(kms==geom.ProbLo(2)&&kme==geom.ProbHi(2));
         for (int y = lo.y; y <= hi.y; ++y) { 
 
       //Real* is ims:ime, Real** ins ims:ime,kms:kme
@@ -4411,13 +4425,178 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       int JTE;
       int KTS;
       int KTE;
+      Array1D<Real,ims,ime> znt_arrD;
+      Array2D<Real,ims,ime,kms,kme> u_arrD;
+      Array2D<Real,ims,ime,kms,kme> v_arrD;
+      Array2D<Real,ims,ime,kms,kme> w_arrD;
+      Array2D<Real,ims,ime,kms,kme> th_arrD;
+      Array2D<Real,ims,ime,kms,kme> sqv3d_arrD;
+      Array2D<Real,ims,ime,kms,kme> sqc3d_arrD;
+      Array2D<Real,ims,ime,kms,kme> sqi3d_arrD;
+      Array2D<Real,ims,ime,kms,kme> sqs3d_arrD;
+      Array2D<Real,ims,ime,kms,kme> qnc_arrD;
+      Array2D<Real,ims,ime,kms,kme> qni_arrD;
+      Array2D<Real,ims,ime,kms,kme> qnwfa_arrD;
+      Array2D<Real,ims,ime,kms,kme> qnifa_arrD;
+      Array2D<Real,ims,ime,kms,kme> qnbca_arrD;
+      Array2D<Real,ims,ime,kms,kme> ozone_arrD;
+      Array2D<Real,ims,ime,kms,kme> p_arrD;
+      Array2D<Real,ims,ime,kms,kme> exner_arrD;
+      Array2D<Real,ims,ime,kms,kme> rho_arrD;
+      Array2D<Real,ims,ime,kms,kme> t3d_arrD;
+      Array1D<Real,ims,ime> xland_arrD;
+      Array1D<Real,ims,ime> ts_arrD;
+      Array1D<Real,ims,ime> qsfc_arrD;
+      Array1D<Real,ims,ime> ps_arrD;
+      Array1D<Real,ims,ime> ust_arrD;
+      Array1D<Real,ims,ime> ch_arrD;
+      Array1D<Real,ims,ime> hfx_arrD;
+      Array1D<Real,ims,ime> qfx_arrD;
+      Array1D<Real,ims,ime> rmol_arrD;
+      Array1D<Real,ims,ime> wspd_arrD;
+      Array1D<Real,ims,ime> uoce_arrD;
+      Array1D<Real,ims,ime> voce_arrD;
+      Array2D<Real,ims,ime,kms,kme> qke_arrD;
+      Array2D<Real,ims,ime,kms,kme> qke_adv_arrD;
+      Array2D<Real,ims,ime,kms,kme> sh3d_arrD;
+      Array2D<Real,ims,ime,kms,kme> sm3d_arrD;
+      Array1D<Real,ims,ime> frp_arrD;
+      Array1D<Real,ims,ime> emis_ant_no_arrD;
+      Array2D<Real,ims,ime,kms,kme> tsq_arrD;
+      Array2D<Real,ims,ime,kms,kme> qsq_arrD;
+      Array2D<Real,ims,ime,kms,kme> cov_arrD;
+      Array2D<Real,ims,ime,kms,kme> rublten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rvblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rthblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqvblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqcblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqiblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqncblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqniblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqsblten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqnwfablten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqnifablten_arrD;
+      Array2D<Real,ims,ime,kms,kme> rqnbcablten_arrD;
+      Array2D<Real,ims,ime,kms,kme> dozone_arrD;
+      Array2D<Real,ims,ime,kms,kme> exch_h_arrD;
+      Array2D<Real,ims,ime,kms,kme> exch_m_arrD;
+      Array1D<Real,ims,ime> pblh_arrD;
+      Array1D<Real,ims,ime> kpbl_arrD;
+      Array2D<Real,ims,ime,kms,kme> el_pbl_arrD;
+      Array2D<Real,ims,ime,kms,kme> dqke_arrD;
+      Array2D<Real,ims,ime,kms,kme> qwt_arrD;
+      Array2D<Real,ims,ime,kms,kme> qshear_arrD;
+      Array2D<Real,ims,ime,kms,kme> qbuoy_arrD;
+      Array2D<Real,ims,ime,kms,kme> qdiss_arrD;
+      Array2D<Real,ims,ime,kms,kme> qc_bl_arrD;
+      Array2D<Real,ims,ime,kms,kme> qi_bl_arrD;
+      Array2D<Real,ims,ime,kms,kme> cldfra_bl_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_a_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_w_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_qt_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_thl_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_ent_arrD;
+      Array2D<Real,ims,ime,kms,kme> edmf_qc_arrD;
+      Array2D<Real,ims,ime,kms,kme> sub_thl3D_arrD;
+      Array2D<Real,ims,ime,kms,kme> sub_sqv3D_arrD;
+      Array2D<Real,ims,ime,kms,kme> det_thl3D_arrD;
+      Array2D<Real,ims,ime,kms,kme> det_sqv3D_arrD;
+      Array1D<Real,ims,ime> maxwidth_arrD;
+      Array1D<Real,ims,ime> maxMF_arrD;
+      Array1D<Real,ims,ime> ztop_plume_arrD;
+      Array1D<Real,ims,ime> ktop_plume_arrD;
+      Array2D<Real,ims,ime,kms,kme> pattern_spp_pbl_arrD;
+      Array2D<Real,ims,ime,kms,kme> rthraten_arrD;
+      znt = znt_arrD.begin();
+      u = u_arrD.begin();
+      v = v_arrD.begin();
+      w = w_arrD.begin();
+      th = th_arrD.begin();
+      sqv3d = sqv3d_arrD.begin();
+      sqc3d = sqc3d_arrD.begin();
+      sqi3d = sqi3d_arrD.begin();
+      sqs3d = sqs3d_arrD.begin();
+      qnc = qnc_arrD.begin();
+      qni = qni_arrD.begin();
+      qnwfa = qnwfa_arrD.begin();
+      qnifa = qnifa_arrD.begin();
+      qnbca = qnbca_arrD.begin();
+      ozone = ozone_arrD.begin();
+      p = p_arrD.begin();
+      exner = exner_arrD.begin();
+      rho = rho_arrD.begin();
+      t3d = t3d_arrD.begin();
+      xland = xland_arrD.begin();
+      ts = ts_arrD.begin();
+      qsfc = qsfc_arrD.begin();
+      ps = ps_arrD.begin();
+      ust = ust_arrD.begin();
+      ch = ch_arrD.begin();
+      hfx = hfx_arrD.begin();
+      qfx = qfx_arrD.begin();
+      rmol = rmol_arrD.begin();
+      wspd = wspd_arrD.begin();
+      uoce = uoce_arrD.begin();
+      voce = voce_arrD.begin();
+      qke = qke_arrD.begin();
+      qke_adv = qke_adv_arrD.begin();
+      sh3d = sh3d_arrD.begin();
+      sm3d = sm3d_arrD.begin();
+      frp = frp_arrD.begin();
+      emis_ant_no = emis_ant_no_arrD.begin();
+      tsq = tsq_arrD.begin();
+      qsq = qsq_arrD.begin();
+      cov = cov_arrD.begin();
+      rublten = rublten_arrD.begin();
+      rvblten = rvblten_arrD.begin();
+      rthblten = rthblten_arrD.begin();
+      rqvblten = rqvblten_arrD.begin();
+      rqcblten = rqcblten_arrD.begin();
+      rqiblten = rqiblten_arrD.begin();
+      rqncblten = rqncblten_arrD.begin();
+      rqniblten = rqniblten_arrD.begin();
+      rqsblten = rqsblten_arrD.begin();
+      rqnwfablten = rqnwfablten_arrD.begin();
+      rqnifablten = rqnifablten_arrD.begin();
+      rqnbcablten = rqnbcablten_arrD.begin();
+      dozone = dozone_arrD.begin();
+      exch_h = exch_h_arrD.begin();
+      exch_m = exch_m_arrD.begin();
+      pblh = pblh_arrD.begin();
+      kpbl = kpbl_arrD.begin();
+      el_pbl = el_pbl_arrD.begin();
+      dqke = dqke_arrD.begin();
+      qwt = qwt_arrD.begin();
+      qshear = qshear_arrD.begin();
+      qbuoy = qbuoy_arrD.begin();
+      qdiss = qdiss_arrD.begin();
+      qc_bl = qc_bl_arrD.begin();
+      qi_bl = qi_bl_arrD.begin();
+      cldfra_bl = cldfra_bl_arrD.begin();
+      edmf_a = edmf_a_arrD.begin();
+      edmf_w = edmf_w_arrD.begin();
+      edmf_qt = edmf_qt_arrD.begin();
+      edmf_thl = edmf_thl_arrD.begin();
+      edmf_ent = edmf_ent_arrD.begin();
+      edmf_qc = edmf_qc_arrD.begin();
+      sub_thl3D = sub_thl3D_arrD.begin();
+      sub_sqv3D = sub_sqv3D_arrD.begin();
+      det_thl3D = det_thl3D_arrD.begin();
+      det_sqv3D = det_sqv3D_arrD.begin();
+      maxwidth = maxwidth_arrD.begin();
+      maxMF = maxMF_arrD.begin();
+      ztop_plume = ztop_plume_arrD.begin();
+      ktop_plume = ktop_plume_arrD.begin();
+      pattern_spp_pbl = pattern_spp_pbl_arrD.begin();
+      rthraten = rthraten_arrD.begin();
       for (int x = lo.x; x <= hi.x; ++x) {
-	for (int z = lo.z; z <= hi.z; ++z) { //kts to kte
+        for (int z = lo.z; z <= hi.z; ++z) { //kts to kte
               int i=x;
               int j=y;
-              xland[i]=xland_arr(i,j,k);
+              int k=z;
+              xland[i]=xland_arr(i,j);
 
-	  }
+          }
       }
       mynn_bl_driver_test(        initflag);
       mynn_bl_driver(        initflag,  restart,  cycling,
@@ -4473,20 +4652,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         FLAG_QNBCA,  FLAG_OZONE,
         IDS,  IDE,  JDS,  JDE,  KDS,  KDE,
         IMS,  IME,  JMS,  JME,  KMS,  KME,
-        ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );              mym_initialize_cc(
-                  kts_cc,kte_cc,xland_arr(i,j),              
-                  dz1, dx(i), zw,                
-                  u1, v1, thl, sqv2,             
-                  PBLH(i), th1, thetav, sh, sm,  
-                  ust(i), rmol(i),               
-                  el, qke1, tsq1, qsq1, cov1,    
-                  psig_bl(i),                    
-                  cldfra_bl1D,                   
-                  bl_mynn_mixlength,             
-                  edmf_w1,edmf_a1,               
-                  INITIALIZE_QKE_I,              
-                  spp_pbl,rstoch_col,            
-                  karman, tv0, gtr               );
+        ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );
     }
     
     }
