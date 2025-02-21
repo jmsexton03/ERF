@@ -23,31 +23,31 @@ extern "C" void mynn_bl_driver_test(int initflag);
 extern "C" void mynn_bl_driver(
        int initflag, int restart, int cycling,
        Real delt, Real dz /*ims:ime*/,Real dx/*ims:ime,kms:kme*/,Real* znt,
-       Real** u,Real ** v,Real** w,Real** th,Real** sqv3d,Real** sqc3d,Real** sqi3d,
-       Real** sqs3d,Real** qnc,Real** qni,
-       Real** qnwfa,Real** qnifa,Real** qnbca,Real** ozone,
-       Real** p,Real** exner,Real** rho,Real** t3d,
+       Real* u,Real* v,Real* w,Real* th,Real* sqv3d,Real* sqc3d,Real* sqi3d,
+       Real* sqs3d,Real* qnc,Real* qni,
+       Real* qnwfa,Real* qnifa,Real* qnbca,Real* ozone,
+       Real* p,Real* exner,Real* rho,Real* t3d,
        Real* xland,Real* ts,Real* qsfc,Real* ps,
        Real* ust,Real* ch,Real* hfx,Real* qfx,Real* rmol,Real* wspd,
        Real* uoce,Real* voce,                       //ocean current
-       Real** qke,Real** qke_adv,
-       Real** sh3d,Real** sm3d,
+       Real* qke,Real* qke_adv,
+       Real* sh3d,Real* sm3d,
        int nchem,int kdvel,int ndvel,               //smoke/chem variables
        Real*** chem3d,Real** vdep,                    //dimension(ims:ime,kms:kme,nchem) and dimension(ims:ime, ndvel)
        Real* frp,Real* emis_ant_no,
        bool mix_chem, bool enh_mix,                //note: these arrays/flags are still under development
        bool rrfs_sd, bool smoke_dbg,               //end smoke/chem variables
-       Real** tsq,Real** qsq,Real** cov,
-       Real** rublten,Real** rvblten,Real** rthblten,
-       Real** rqvblten,Real** rqcblten,Real** rqiblten,
-       Real** rqncblten,Real** rqniblten,Real** rqsblten,
-       Real** rqnwfablten,Real** rqnifablten,
-       Real** rqnbcablten,Real** dozone,
-       Real** exch_h,Real** exch_m,
+       Real* tsq,Real* qsq,Real* cov,
+       Real* rublten,Real* rvblten,Real* rthblten,
+       Real* rqvblten,Real* rqcblten,Real* rqiblten,
+       Real* rqncblten,Real* rqniblten,Real* rqsblten,
+       Real* rqnwfablten,Real* rqnifablten,
+       Real* rqnbcablten,Real* dozone,
+       Real* exch_h,Real* exch_m,
        Real* pblh,Real* kpbl,
-       Real** el_pbl,
-       Real** dqke,Real** qwt,Real** qshear,Real** qbuoy,Real** qdiss,
-       Real** qc_bl,Real** qi_bl,Real** cldfra_bl,
+       Real* el_pbl,
+       Real* dqke,Real* qwt,Real* qshear,Real* qbuoy,Real* qdiss,
+       Real* qc_bl,Real* qi_bl,Real* cldfra_bl,
        int bl_mynn_tkeadvect,
        int tke_budget,
        int bl_mynn_cloudpdf,
@@ -60,14 +60,14 @@ extern "C" void mynn_bl_driver(
        int bl_mynn_mixscalars,
        int bl_mynn_output,
        int bl_mynn_cloudmix, int bl_mynn_mixqt,
-       Real** edmf_a,Real** edmf_w,Real** edmf_qt,
-       Real** edmf_thl,Real** edmf_ent,Real** edmf_qc,
-       Real** sub_thl3D,Real** sub_sqv3D,
-       Real** det_thl3D,Real** det_sqv3D,
+       Real* edmf_a,Real* edmf_w,Real* edmf_qt,
+       Real* edmf_thl,Real* edmf_ent,Real* edmf_qc,
+       Real* sub_thl3D,Real* sub_sqv3D,
+       Real* det_thl3D,Real* det_sqv3D,
        Real* maxwidth,Real* maxMF,Real* ztop_plume,
        Real* ktop_plume,
-       int spp_pbl,Real** pattern_spp_pbl,
-       Real** rthraten,
+       int spp_pbl,Real* pattern_spp_pbl,
+       Real* rthraten,
        int FLAG_QC, int FLAG_QI, int FLAG_QNC,
        int FLAG_QNI, int FLAG_QS,
        int FLAG_QNWFA, int FLAG_QNIFA,
@@ -4254,17 +4254,26 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
     Print()<<"reached mynnedmf"<<std::endl;
     {
         const auto& xland_mf=most->get_lmask(level);
+
+        ////////////////////////////////// add MultiFab variables here
+
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
     for ( MFIter mfi(eddyViscosity,false); mfi.isValid(); ++mfi) {
 
         const Box &bx = mfi.growntilebox(1);
+	FArrayBox garbage(bx);
+	garbage.setVal(NAN);
+        const Array4<Real const>& garbage_arr = garbage.array();
         const Array4<Real const>& cell_data = cons_in.array(mfi);
         const Array4<Real      >& K_turb    = eddyViscosity.array(mfi);
         const Array4<Real const>& uvel      = xvel.array(mfi);
         const Array4<Real const>& vvel      = yvel.array(mfi);
+        const Array4<Real const>& wvel      = garbage_arr;
         const Array4<int const>& xland_arr  = xland_mf->array(mfi);
+
+        ////////////////////////////////// add Array4 variables here
 
         const Dim3 lo = amrex::lbound(bx);
         const Dim3 hi = amrex::ubound(bx);
@@ -4293,24 +4302,24 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       Real dz /*ims:ime*/;
       Real dx/*ims:ime,kms:kme*/;
       Real* znt;
-      Real** u;
-      Real** v;
-      Real** w;
-      Real** th;
-      Real** sqv3d;
-      Real** sqc3d;
-      Real** sqi3d;
-      Real** sqs3d;
-      Real** qnc;
-      Real** qni;
-      Real** qnwfa;
-      Real** qnifa;
-      Real** qnbca;
-      Real** ozone;
-      Real** p;
-      Real** exner;
-      Real** rho;
-      Real** t3d;
+      Real* u;
+      Real* v;
+      Real* w;
+      Real* th;
+      Real* sqv3d;
+      Real* sqc3d;
+      Real* sqi3d;
+      Real* sqs3d;
+      Real* qnc;
+      Real* qni;
+      Real* qnwfa;
+      Real* qnifa;
+      Real* qnbca;
+      Real* ozone;
+      Real* p;
+      Real* exner;
+      Real* rho;
+      Real* t3d;
       Real* xland;
       Real* ts;
       Real* qsfc;
@@ -4323,10 +4332,10 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       Real* wspd;
       Real* uoce;
       Real* voce;                       //ocean current
-      Real** qke;
-      Real** qke_adv;
-      Real** sh3d;
-      Real** sm3d;
+      Real* qke;
+      Real* qke_adv;
+      Real* sh3d;
+      Real* sm3d;
       int nchem;
       int kdvel;
       int ndvel;               //smoke/chem variables
@@ -4339,35 +4348,35 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       bool enh_mix;
       bool rrfs_sd;
       bool smoke_dbg;               //end smoke/chem variables
-      Real** tsq;
-      Real** qsq;
-      Real** cov;
-      Real** rublten;
-      Real** rvblten;
-      Real** rthblten;
-      Real** rqvblten;
-      Real** rqcblten;
-      Real** rqiblten;
-      Real** rqncblten;
-      Real** rqniblten;
-      Real** rqsblten;
-      Real** rqnwfablten;
-      Real** rqnifablten;
-      Real** rqnbcablten;
-      Real** dozone;
-      Real** exch_h;
-      Real** exch_m;
+      Real* tsq;
+      Real* qsq;
+      Real* cov;
+      Real* rublten;
+      Real* rvblten;
+      Real* rthblten;
+      Real* rqvblten;
+      Real* rqcblten;
+      Real* rqiblten;
+      Real* rqncblten;
+      Real* rqniblten;
+      Real* rqsblten;
+      Real* rqnwfablten;
+      Real* rqnifablten;
+      Real* rqnbcablten;
+      Real* dozone;
+      Real* exch_h;
+      Real* exch_m;
       Real* pblh;
       Real* kpbl;
-      Real** el_pbl;
-      Real** dqke;
-      Real** qwt;
-      Real** qshear;
-      Real** qbuoy;
-      Real** qdiss;
-      Real** qc_bl;
-      Real** qi_bl;
-      Real** cldfra_bl;
+      Real* el_pbl;
+      Real* dqke;
+      Real* qwt;
+      Real* qshear;
+      Real* qbuoy;
+      Real* qdiss;
+      Real* qc_bl;
+      Real* qi_bl;
+      Real* cldfra_bl;
       int bl_mynn_tkeadvect;
       int tke_budget;
       int bl_mynn_cloudpdf;
@@ -4381,23 +4390,23 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       int bl_mynn_output;
       int bl_mynn_cloudmix;
       int bl_mynn_mixqt;
-      Real** edmf_a;
-      Real** edmf_w;
-      Real** edmf_qt;
-      Real** edmf_thl;
-      Real** edmf_ent;
-      Real** edmf_qc;
-      Real** sub_thl3D;
-      Real** sub_sqv3D;
-      Real** det_thl3D;
-      Real** det_sqv3D;
+      Real* edmf_a;
+      Real* edmf_w;
+      Real* edmf_qt;
+      Real* edmf_thl;
+      Real* edmf_ent;
+      Real* edmf_qc;
+      Real* sub_thl3D;
+      Real* sub_sqv3D;
+      Real* det_thl3D;
+      Real* det_sqv3D;
       Real* maxwidth;
       Real* maxMF;
       Real* ztop_plume;
       Real* ktop_plume;
       int spp_pbl;
-      Real** pattern_spp_pbl;
-      Real** rthraten;
+      Real* pattern_spp_pbl;
+      Real* rthraten;
       int FLAG_QC;
       int FLAG_QI;
       int FLAG_QNC;
@@ -4594,8 +4603,12 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
               int i=x;
               int j=y;
               int k=z;
-              xland[i]=xland_arr(i,j);
+              xland_arrD(i)=xland_arr(i,j,k);
+              u_arrD(i,k)=uvel(i,j,k);
+              v_arrD(i,k)=vvel(i,j,k);
+              w_arrD(i,k)=wvel(i,j,k);
 
+      ////////////////////////////////// add 2dmapping variables here
           }
       }
       mynn_bl_driver_test(        initflag);
@@ -4653,8 +4666,9 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         IDS,  IDE,  JDS,  JDE,  KDS,  KDE,
         IMS,  IME,  JMS,  JME,  KMS,  KME,
         ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );
-    }
+	}
     
+    }
     }
     const bool use_terrain = (z_phys_nd != nullptr);
     const bool use_most    = (most != nullptr);
