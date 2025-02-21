@@ -4,6 +4,9 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <vector>
+#include <array>
+#include <optional>
 
 #include "ERF_ABLMost.H"
 #include "ERF_DirectionSelector.H"
@@ -4250,6 +4253,24 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
 {
     Print()<<"reached mynnedmf"<<std::endl;
     {
+        const auto& xland_mf=most->get_lmask(level);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for ( MFIter mfi(eddyViscosity,false); mfi.isValid(); ++mfi) {
+
+        const Box &bx = mfi.growntilebox(1);
+        const Array4<Real const>& cell_data = cons_in.array(mfi);
+        const Array4<Real      >& K_turb    = eddyViscosity.array(mfi);
+        const Array4<Real const>& uvel      = xvel.array(mfi);
+        const Array4<Real const>& vvel      = yvel.array(mfi);
+        const Array4<int const>& xland_arr  = xland_mf->array(mfi);
+
+        const Dim3 lo = amrex::lbound(box);
+        const Dim3 hi = amrex::ubound(box);
+
+        for (int y = lo.y; y <= hi.y; ++y) { 
+              
       //Real* is ims:ime, Real** ins ims:ime,kms:kme
       int initflag;
       int restart;
@@ -4444,7 +4465,22 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         FLAG_QNBCA,  FLAG_OZONE,
         IDS,  IDE,  JDS,  JDE,  KDS,  KDE,
         IMS,  IME,  JMS,  JME,  KMS,  KME,
-        ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );
+        ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );              mym_initialize_cc(
+                  kts_cc,kte_cc,xland_arr(i,j),              
+                  dz1, dx(i), zw,                
+                  u1, v1, thl, sqv2,             
+                  PBLH(i), th1, thetav, sh, sm,  
+                  ust(i), rmol(i),               
+                  el, qke1, tsq1, qsq1, cov1,    
+                  psig_bl(i),                    
+                  cldfra_bl1D,                   
+                  bl_mynn_mixlength,             
+                  edmf_w1,edmf_a1,               
+                  INITIALIZE_QKE_I,              
+                  spp_pbl,rstoch_col,            
+                  karman, tv0, gtr               );
+    }
+    
     }
     const bool use_terrain = (z_phys_nd != nullptr);
     const bool use_most    = (most != nullptr);
