@@ -4253,8 +4253,91 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
 {
     Print()<<"reached mynnedmf"<<std::endl;
     {
+        MultiFab garbage(xvel.boxArray(),xvel.DistributionMap(),1,0);
+	garbage.setVal(NAN);
         const auto& xland_mf=most->get_lmask(level);
-
+        MultiFab & znt_mf = garbage;
+        MultiFab & u_mf = garbage;
+        MultiFab & v_mf = garbage;
+        MultiFab & w_mf = garbage;
+        MultiFab & th_mf = garbage;
+        MultiFab & sqv3d_mf = garbage;
+        MultiFab & sqc3d_mf = garbage;
+        MultiFab & sqi3d_mf = garbage;
+        MultiFab & sqs3d_mf = garbage;
+        MultiFab & qnc_mf = garbage;
+        MultiFab & qni_mf = garbage;
+        MultiFab & qnwfa_mf = garbage;
+        MultiFab & qnifa_mf = garbage;
+        MultiFab & qnbca_mf = garbage;
+        MultiFab & ozone_mf = garbage;
+        MultiFab & p_mf = garbage;
+        MultiFab & exner_mf = garbage;
+        MultiFab & rho_mf = garbage;
+        MultiFab & t3d_mf = garbage;
+//        MultiFab & xland_mf = garbage;
+        MultiFab & ts_mf = garbage;
+        MultiFab & qsfc_mf = garbage;
+        MultiFab & ps_mf = garbage;
+        MultiFab & ust_mf = garbage;
+        MultiFab & ch_mf = garbage;
+        MultiFab & hfx_mf = garbage;
+        MultiFab & qfx_mf = garbage;
+        MultiFab & rmol_mf = garbage;
+        MultiFab & wspd_mf = garbage;
+        MultiFab & uoce_mf = garbage;
+        MultiFab & voce_mf = garbage;
+        MultiFab & qke_mf = garbage;
+        MultiFab & qke_adv_mf = garbage;
+        MultiFab & sh3d_mf = garbage;
+        MultiFab & sm3d_mf = garbage;
+        MultiFab & frp_mf = garbage;
+        MultiFab & emis_ant_no_mf = garbage;
+        MultiFab & tsq_mf = garbage;
+        MultiFab & qsq_mf = garbage;
+        MultiFab & cov_mf = garbage;
+        MultiFab & rublten_mf = garbage;
+        MultiFab & rvblten_mf = garbage;
+        MultiFab & rthblten_mf = garbage;
+        MultiFab & rqvblten_mf = garbage;
+        MultiFab & rqcblten_mf = garbage;
+        MultiFab & rqiblten_mf = garbage;
+        MultiFab & rqncblten_mf = garbage;
+        MultiFab & rqniblten_mf = garbage;
+        MultiFab & rqsblten_mf = garbage;
+        MultiFab & rqnwfablten_mf = garbage;
+        MultiFab & rqnifablten_mf = garbage;
+        MultiFab & rqnbcablten_mf = garbage;
+        MultiFab & dozone_mf = garbage;
+        MultiFab & exch_h_mf = garbage;
+        MultiFab & exch_m_mf = garbage;
+        MultiFab & pblh_mf = garbage;
+        MultiFab & kpbl_mf = garbage;
+        MultiFab & el_pbl_mf = garbage;
+        MultiFab & dqke_mf = garbage;
+        MultiFab & qwt_mf = garbage;
+        MultiFab & qshear_mf = garbage;
+        MultiFab & qbuoy_mf = garbage;
+        MultiFab & qdiss_mf = garbage;
+        MultiFab & qc_bl_mf = garbage;
+        MultiFab & qi_bl_mf = garbage;
+        MultiFab & cldfra_bl_mf = garbage;
+        MultiFab & edmf_a_mf = garbage;
+        MultiFab & edmf_w_mf = garbage;
+        MultiFab & edmf_qt_mf = garbage;
+        MultiFab & edmf_thl_mf = garbage;
+        MultiFab & edmf_ent_mf = garbage;
+        MultiFab & edmf_qc_mf = garbage;
+        MultiFab & sub_thl3D_mf = garbage;
+        MultiFab & sub_sqv3D_mf = garbage;
+        MultiFab & det_thl3D_mf = garbage;
+        MultiFab & det_sqv3D_mf = garbage;
+        MultiFab & maxwidth_mf = garbage;
+        MultiFab & maxMF_mf = garbage;
+        MultiFab & ztop_plume_mf = garbage;
+        MultiFab & ktop_plume_mf = garbage;
+        MultiFab & pattern_spp_pbl_mf = garbage;
+        MultiFab & rthraten_mf = garbage;
         ////////////////////////////////// add MultiFab variables here
 
 #ifdef _OPENMP
@@ -4263,8 +4346,8 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
     for ( MFIter mfi(eddyViscosity,false); mfi.isValid(); ++mfi) {
 
         const Box &bx = mfi.growntilebox(1);
-	FArrayBox garbage(bx);
-	garbage.setVal(NAN);
+        FArrayBox garbage(bx);
+        garbage.setVal(NAN);
         const Array4<Real const>& garbage_arr = garbage.array();
         const Array4<Real const>& cell_data = cons_in.array(mfi);
         const Array4<Real      >& K_turb    = eddyViscosity.array(mfi);
@@ -4273,6 +4356,88 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         const Array4<Real const>& wvel      = garbage_arr;
         const Array4<int const>& xland_arr  = xland_mf->array(mfi);
 
+        const Array4<Real>& znt_arr = znt_mf.array(mfi);
+        const Array4<Real>& u_arr = u_mf.array(mfi);
+        const Array4<Real>& v_arr = v_mf.array(mfi);
+        const Array4<Real>& w_arr = w_mf.array(mfi);
+        const Array4<Real>& th_arr = th_mf.array(mfi);
+        const Array4<Real>& sqv3d_arr = sqv3d_mf.array(mfi);
+        const Array4<Real>& sqc3d_arr = sqc3d_mf.array(mfi);
+        const Array4<Real>& sqi3d_arr = sqi3d_mf.array(mfi);
+        const Array4<Real>& sqs3d_arr = sqs3d_mf.array(mfi);
+        const Array4<Real>& qnc_arr = qnc_mf.array(mfi);
+        const Array4<Real>& qni_arr = qni_mf.array(mfi);
+        const Array4<Real>& qnwfa_arr = qnwfa_mf.array(mfi);
+        const Array4<Real>& qnifa_arr = qnifa_mf.array(mfi);
+        const Array4<Real>& qnbca_arr = qnbca_mf.array(mfi);
+        const Array4<Real>& ozone_arr = ozone_mf.array(mfi);
+        const Array4<Real>& p_arr = p_mf.array(mfi);
+        const Array4<Real>& exner_arr = exner_mf.array(mfi);
+        const Array4<Real>& rho_arr = rho_mf.array(mfi);
+        const Array4<Real>& t3d_arr = t3d_mf.array(mfi);
+//        const Array4<Real>& xland_arr = xland_mf.array(mfi);
+        const Array4<Real>& ts_arr = ts_mf.array(mfi);
+        const Array4<Real>& qsfc_arr = qsfc_mf.array(mfi);
+        const Array4<Real>& ps_arr = ps_mf.array(mfi);
+        const Array4<Real>& ust_arr = ust_mf.array(mfi);
+        const Array4<Real>& ch_arr = ch_mf.array(mfi);
+        const Array4<Real>& hfx_arr = hfx_mf.array(mfi);
+        const Array4<Real>& qfx_arr = qfx_mf.array(mfi);
+        const Array4<Real>& rmol_arr = rmol_mf.array(mfi);
+        const Array4<Real>& wspd_arr = wspd_mf.array(mfi);
+        const Array4<Real>& uoce_arr = uoce_mf.array(mfi);
+        const Array4<Real>& voce_arr = voce_mf.array(mfi);
+        const Array4<Real>& qke_arr = qke_mf.array(mfi);
+        const Array4<Real>& qke_adv_arr = qke_adv_mf.array(mfi);
+        const Array4<Real>& sh3d_arr = sh3d_mf.array(mfi);
+        const Array4<Real>& sm3d_arr = sm3d_mf.array(mfi);
+        const Array4<Real>& frp_arr = frp_mf.array(mfi);
+        const Array4<Real>& emis_ant_no_arr = emis_ant_no_mf.array(mfi);
+        const Array4<Real>& tsq_arr = tsq_mf.array(mfi);
+        const Array4<Real>& qsq_arr = qsq_mf.array(mfi);
+        const Array4<Real>& cov_arr = cov_mf.array(mfi);
+        const Array4<Real>& rublten_arr = rublten_mf.array(mfi);
+        const Array4<Real>& rvblten_arr = rvblten_mf.array(mfi);
+        const Array4<Real>& rthblten_arr = rthblten_mf.array(mfi);
+        const Array4<Real>& rqvblten_arr = rqvblten_mf.array(mfi);
+        const Array4<Real>& rqcblten_arr = rqcblten_mf.array(mfi);
+        const Array4<Real>& rqiblten_arr = rqiblten_mf.array(mfi);
+        const Array4<Real>& rqncblten_arr = rqncblten_mf.array(mfi);
+        const Array4<Real>& rqniblten_arr = rqniblten_mf.array(mfi);
+        const Array4<Real>& rqsblten_arr = rqsblten_mf.array(mfi);
+        const Array4<Real>& rqnwfablten_arr = rqnwfablten_mf.array(mfi);
+        const Array4<Real>& rqnifablten_arr = rqnifablten_mf.array(mfi);
+        const Array4<Real>& rqnbcablten_arr = rqnbcablten_mf.array(mfi);
+        const Array4<Real>& dozone_arr = dozone_mf.array(mfi);
+        const Array4<Real>& exch_h_arr = exch_h_mf.array(mfi);
+        const Array4<Real>& exch_m_arr = exch_m_mf.array(mfi);
+        const Array4<Real>& pblh_arr = pblh_mf.array(mfi);
+        const Array4<Real>& kpbl_arr = kpbl_mf.array(mfi);
+        const Array4<Real>& el_pbl_arr = el_pbl_mf.array(mfi);
+        const Array4<Real>& dqke_arr = dqke_mf.array(mfi);
+        const Array4<Real>& qwt_arr = qwt_mf.array(mfi);
+        const Array4<Real>& qshear_arr = qshear_mf.array(mfi);
+        const Array4<Real>& qbuoy_arr = qbuoy_mf.array(mfi);
+        const Array4<Real>& qdiss_arr = qdiss_mf.array(mfi);
+        const Array4<Real>& qc_bl_arr = qc_bl_mf.array(mfi);
+        const Array4<Real>& qi_bl_arr = qi_bl_mf.array(mfi);
+        const Array4<Real>& cldfra_bl_arr = cldfra_bl_mf.array(mfi);
+        const Array4<Real>& edmf_a_arr = edmf_a_mf.array(mfi);
+        const Array4<Real>& edmf_w_arr = edmf_w_mf.array(mfi);
+        const Array4<Real>& edmf_qt_arr = edmf_qt_mf.array(mfi);
+        const Array4<Real>& edmf_thl_arr = edmf_thl_mf.array(mfi);
+        const Array4<Real>& edmf_ent_arr = edmf_ent_mf.array(mfi);
+        const Array4<Real>& edmf_qc_arr = edmf_qc_mf.array(mfi);
+        const Array4<Real>& sub_thl3D_arr = sub_thl3D_mf.array(mfi);
+        const Array4<Real>& sub_sqv3D_arr = sub_sqv3D_mf.array(mfi);
+        const Array4<Real>& det_thl3D_arr = det_thl3D_mf.array(mfi);
+        const Array4<Real>& det_sqv3D_arr = det_sqv3D_mf.array(mfi);
+        const Array4<Real>& maxwidth_arr = maxwidth_mf.array(mfi);
+        const Array4<Real>& maxMF_arr = maxMF_mf.array(mfi);
+        const Array4<Real>& ztop_plume_arr = ztop_plume_mf.array(mfi);
+        const Array4<Real>& ktop_plume_arr = ktop_plume_mf.array(mfi);
+        const Array4<Real>& pattern_spp_pbl_arr = pattern_spp_pbl_mf.array(mfi);
+        const Array4<Real>& rthraten_arr = rthraten_mf.array(mfi);
         ////////////////////////////////// add Array4 variables here
 
         const Dim3 lo = amrex::lbound(bx);
@@ -4599,11 +4764,11 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
       pattern_spp_pbl = pattern_spp_pbl_arrD.begin();
       rthraten = rthraten_arrD.begin();
       for (int x = lo.x; x <= hi.x; ++x) {
+        int i=x;
+        int j=y;
+        xland_arrD(i)=xland_arr(i,j,0);
         for (int z = lo.z; z <= hi.z; ++z) { //kts to kte
-              int i=x;
-              int j=y;
               int k=z;
-              xland_arrD(i)=xland_arr(i,j,k);
               u_arrD(i,k)=uvel(i,j,k);
               v_arrD(i,k)=vvel(i,j,k);
               w_arrD(i,k)=wvel(i,j,k);
@@ -4666,7 +4831,7 @@ ComputeDiffusivityMYNNEDMF (const MultiFab& xvel,
         IDS,  IDE,  JDS,  JDE,  KDS,  KDE,
         IMS,  IME,  JMS,  JME,  KMS,  KME,
         ITS,  ITE,  JTS,  JTE,  KTS,  KTE         );
-	}
+        }
     
     }
     }
