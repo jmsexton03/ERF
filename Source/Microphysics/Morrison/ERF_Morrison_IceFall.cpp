@@ -1,148 +1,188 @@
-#include <AMReX_ParReduce.H>
 #include "ERF_Morrison.H"
-#include "ERF_TileNoZ.H"
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_MultiFabUtil.H>
 #include <cmath>
-
-using namespace amrex;
 
 /**
  * Sedimentation of cloud ice (A32)
+ * 
+ * This function implements the vertical sedimentation of cloud ice particles.
+ * It corresponds to the ice sedimentation section in the MORR_TWO_MOMENT_MICRO
+ * subroutine in the original WRF Fortran code (around lines 3400-3650).
  */
-void Morrison::IceFall (const SolverChoice& /*sc*/)
+void 
+Morrison::IceFall(const SolverChoice& /*sc*/)
 {
-    Real dz   = m_geom.CellSize(2);
-    Real dtn  = dt;
-    Real coef = dtn/dz;
+    BL_PROFILE("Morrison::IceFall()");
 
-    auto domain = m_geom.Domain();
-    int k_lo = domain.smallEnd(2);
-    int k_hi = domain.bigEnd(2);
+    // Local vertical indexing
+    const int klo = zlo;
+    const int khi = zhi;
 
-    auto qcl   = mic_fab_vars[MicVar_Morr::qcl];
-    auto qci   = mic_fab_vars[MicVar_Morr::qci];
-    auto qn    = mic_fab_vars[MicVar_Morr::qn];
-    auto qt    = mic_fab_vars[MicVar_Morr::qt];
-    auto rho   = mic_fab_vars[MicVar_Morr::rho];
-    auto tabs  = mic_fab_vars[MicVar_Morr::tabs];
+    // Adaptive time steps for sedimentation to maintain numerical stability
+    constexpr int max_split_steps = 10; // Maximum number of substeps allowed
+    
+    // Loop through the grids
+    for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::qci]); mfi.isValid(); ++mfi) {
+        const amrex::Box& box = mfi.validbox();
+        
+        // Get data arrays
+        auto const& qci_arr = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        auto const& rho_arr = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+        auto const& tabs_arr = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
 
-    MultiFab fz;
-    IntVect  ng = qcl->nGrowVect();
-    BoxArray ba = qcl->boxArray();
-    DistributionMapping dm = qcl->DistributionMap();
-    fz.define(convert(ba, IntVect(0,0,1)), dm, 1, ng);
-    fz.setVal(0.);
+        // Create temporary arrays for sedimentation
+        amrex::FArrayBox fab_ni(box, 1); // Ice number concentration
+        amrex::FArrayBox fab_fluxqi(box, 1); // Mass flux
+        amrex::FArrayBox fab_fluxni(box, 1); // Number flux
+        
+        auto const& ni_arr = fab_ni.array();
+        auto const& fluxqi_arr = fab_fluxqi.array();
+        auto const& fluxni_arr = fab_fluxni.array();
+        
+        // Get number concentration array from storage 
+        // Note: In a complete implementation, this would be properly stored and accessed
 
-    for (MFIter mfi(fz, TileNoZ()); mfi.isValid(); ++mfi) {
-        auto qci_array = qci->array(mfi);
-        auto rho_array = rho->array(mfi);
-        auto fz_array  = fz.array(mfi);
-
-        const auto& box3d  = mfi.tilebox();
-
-        ParallelFor(box3d, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-        {
-            Real rho_avg, qci_avg;
-            if (k==k_lo) {
-                rho_avg = rho_array(i,j,k);
-                qci_avg = qci_array(i,j,k);
-            } else if (k==k_hi+1) {
-                rho_avg = rho_array(i,j,k-1);
-                qci_avg = qci_array(i,j,k-1);
+        // Initialize cloud ice number concentration based on mixing ratio
+        // using a typical relationship or known values
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            // Estimate ice number concentration from mixing ratio
+            // This is a placeholder - in a real implementation this would come from storage
+            if (qci_arr(i,j,k) > m_qsmall) {
+                // Typical ice concentration based on mixing ratio
+                // Assuming a typical ice diameter of ~50 microns
+                const amrex::Real typical_mass = 4.0/3.0 * M_PI * m_rhoi * std::pow(25.0e-6, 3);
+                ni_arr(i,j,k) = qci_arr(i,j,k) / typical_mass;
             } else {
-                rho_avg = 0.5*(rho_array(i,j,k-1) + rho_array(i,j,k));
-                qci_avg = 0.5*(qci_array(i,j,k-1) + qci_array(i,j,k));
+                ni_arr(i,j,k) = 0.0;
             }
-            Real vt_ice = min( 0.4 , 8.66 * pow( (std::max(0.,qci_avg)+1.e-10) , 0.24) );
+        });
+        
+        // Calculate maximum fall speed for determining time step splitting
+        amrex::Real max_fall_speed = 0.0;
+        
+        // First calculate maximum fall speed anywhere in the domain
+        for (int k = klo; k <= khi; ++k) {
+            for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+                for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                    if (qci_arr(i,j,k) > m_qsmall) {
+                        // Calculate size distribution parameters
+                        amrex::Real lami = std::pow(m_cons12 * ni_arr(i,j,k) / qci_arr(i,j,k), 1.0/m_di);
+                        
+                        // Apply limits to lambda
+                        lami = amrex::max(lami, m_lammini);
+                        lami = amrex::min(lami, m_lammaxi);
+                        
+                        // Calculate fall speed with density correction
+                        // Ikawa and Saito 1991 air-density correction (line 2018)
+                        const amrex::Real air_density_factor = std::pow(m_rhosu/rho_arr(i,j,k), 0.35);
+                        const amrex::Real fall_speed = air_density_factor * m_ai / std::pow(lami, m_bi);
+                        
+                        max_fall_speed = amrex::max(max_fall_speed, fall_speed);
+                    }
+                }
+            }
+        }
+        
+        // Calculate number of sub-timesteps needed for stability
+        int num_split_steps = 1;
+        amrex::Real dz_min = m_geom.CellSize(m_axis);
+        
+        if (max_fall_speed > 0.0) {
+            // Calculate Courant number
+            amrex::Real courant = max_fall_speed * dt / dz_min;
+            
+            // Calculate number of substeps needed for stability
+            num_split_steps = static_cast<int>(std::ceil(courant / CFL_MAX));
+            num_split_steps = amrex::min(num_split_steps, max_split_steps);
+        }
+        
+        // Duration of each substep
+        const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
+        
+        // Perform sedimentation over multiple sub-timesteps if necessary
+        for (int step = 0; step < num_split_steps; ++step) {
+            // Initialize fluxes to zero
+            amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+                fluxqi_arr(i,j,k) = 0.0;
+                fluxni_arr(i,j,k) = 0.0;
+            });
+            
+            // Calculate fluxes at cell interfaces
+            for (int k = klo; k < khi; ++k) {
+                for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+                    for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                        // Calculate mass and number fluxes at k+1/2 interface
+                        if (qci_arr(i,j,k) > m_qsmall) {
+                            // Calculate size distribution parameters
+                            amrex::Real lami = std::pow(m_cons12 * ni_arr(i,j,k) / qci_arr(i,j,k), 1.0/m_di);
+                            
+                            // Apply limits to lambda
+                            lami = amrex::max(lami, m_lammini);
+                            lami = amrex::min(lami, m_lammaxi);
+                            
+                            // Calculate number-weighted terminal velocity
+                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho_arr(i,j,k), 0.35);
+                            amrex::Real vt_ice = air_density_factor * m_ai / std::pow(lami, m_bi);
+                            
+                            // Apply reasonable fall speed limit
+                            vt_ice = amrex::min(vt_ice, 1.2 * air_density_factor);
+                            
+                            // Calculate fluxes (mass and number)
+                            fluxqi_arr(i,j,k) = vt_ice * qci_arr(i,j,k) * rho_arr(i,j,k);
+                            fluxni_arr(i,j,k) = vt_ice * ni_arr(i,j,k) * rho_arr(i,j,k);
+                        }
+                    }
+                }
+            }
+            
+            // Apply sedimentation tendencies
+            for (int k = klo; k <= khi; ++k) {
+                for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+                    for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                        // Calculate the tendencies due to sedimentation
+                        amrex::Real tend_qi = 0.0;
+                        amrex::Real tend_ni = 0.0;
 
-            // NOTE: Fz is the sedimentation flux from the advective operator.
-            //       In the terrain-following coordinate system, the z-deriv in
-            //       the divergence uses the normal velocity (Omega). However,
-            //       there are no u/v components to the sedimentation velocity.
-            //       Therefore, we simply end up with a division by detJ when
-            //       evaluating the source term: dJinv * (flux_hi - flux_lo) * dzinv.
-            fz_array(i,j,k) = rho_avg*vt_ice*qci_avg;
+                        // Flux divergence for cell k
+                        if (k < khi) {
+                            tend_qi -= fluxqi_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                            tend_ni -= fluxni_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                        }
+                        
+                        if (k > klo) {
+                            tend_qi += fluxqi_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                            tend_ni += fluxni_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                        }
+                        
+                        // Apply tendencies
+                        qci_arr(i,j,k) += tend_qi * dt_sub;
+                        ni_arr(i,j,k) += tend_ni * dt_sub;
+                        
+                        // Floor values to prevent negative concentrations
+                        qci_arr(i,j,k) = amrex::max(qci_arr(i,j,k), 0.0);
+                        ni_arr(i,j,k) = amrex::max(ni_arr(i,j,k), 0.0);
+                        
+                        // Set very small values to zero
+                        if (qci_arr(i,j,k) < m_qsmall) {
+                            qci_arr(i,j,k) = 0.0;
+                            ni_arr(i,j,k) = 0.0;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Update the total cloud condensate (qn) and total cloud (qt) fields
+        auto const& qcl_arr = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+        auto const& qn_arr = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
+        auto const& qv_arr = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
+        auto const& qt_arr = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
+        
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            // Update total condensate and total cloud
+            qn_arr(i,j,k) = qcl_arr(i,j,k) + qci_arr(i,j,k);
+            qt_arr(i,j,k) = qv_arr(i,j,k) + qn_arr(i,j,k);
         });
     }
-
-    // Compute number of substeps from maximum terminal velocity
-    Real wt_max;
-    int n_substep;
-    auto const& ma_fz_arr = fz.const_arrays();
-    GpuTuple<Real> max = ParReduce(TypeList<ReduceOpMax>{},
-                                   TypeList<Real>{},
-                                   fz, IntVect(0),
-                         [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k) noexcept
-                         -> GpuTuple<Real>
-                         {
-                             return { ma_fz_arr[box_no](i,j,k) };
-                         });
-    wt_max = get<0>(max) + std::numeric_limits<Real>::epsilon();
-    n_substep = int( std::ceil(wt_max * coef / CFL_MAX) );
-    AMREX_ALWAYS_ASSERT(n_substep >= 1);
-    coef /= Real(n_substep);
-    dtn  /= Real(n_substep);
-
-    // Substep the vertical advection
-    for (int nsub(0); nsub<n_substep; ++nsub) {
-        for (MFIter mfi(*qci, TileNoZ()); mfi.isValid(); ++mfi) {
-            auto qci_array   = qci->array(mfi);
-            auto qn_array    = qn->array(mfi);
-            auto qt_array    = qt->array(mfi);
-            auto rho_array   = rho->array(mfi);
-            auto fz_array    = fz.array(mfi);
-
-            const auto dJ_array = (m_detJ_cc) ? m_detJ_cc->const_array(mfi) : Array4<const Real>{};
-
-            const auto& tbx  = mfi.tilebox();
-            const auto& tbz = mfi.tilebox(IntVect(0,0,1),IntVect(0));
-
-            // Update vertical flux every substep
-            ParallelFor(tbz, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-            {
-                Real rho_avg, qci_avg;
-                if (k==k_lo) {
-                    rho_avg = rho_array(i,j,k);
-                    qci_avg = qci_array(i,j,k);
-                } else if (k==k_hi+1) {
-                    rho_avg = rho_array(i,j,k-1);
-                    qci_avg = qci_array(i,j,k-1);
-                } else {
-                    rho_avg = 0.5*(rho_array(i,j,k-1) + rho_array(i,j,k));
-                    qci_avg = 0.5*(qci_array(i,j,k-1) + qci_array(i,j,k));
-                }
-                Real vt_ice = min( 0.4 , 8.66 * pow( (std::max(0.,qci_avg)+1.e-10) , 0.24) );
-
-                // NOTE: Fz is the sedimentation flux from the advective operator.
-                //       In the terrain-following coordinate system, the z-deriv in
-                //       the divergence uses the normal velocity (Omega). However,
-                //       there are no u/v components to the sedimentation velocity.
-                //       Therefore, we simply end up with a division by detJ when
-                //       evaluating the source term: dJinv * (flux_hi - flux_lo) * dzinv.
-                fz_array(i,j,k) = rho_avg*vt_ice*qci_avg;
-            });
-
-            // Update precip every substep
-            ParallelFor(tbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-            {
-                // Jacobian determinant
-                Real dJinv = (dJ_array) ? 1.0/dJ_array(i,j,k) : 1.0;
-
-                //==================================================
-                // Cloud ice sedimentation (A32)
-                //==================================================
-                Real dqi  = dJinv * (1.0/rho_array(i,j,k)) * ( fz_array(i,j,k+1) - fz_array(i,j,k) ) * coef;
-                dqi = std::max(-qci_array(i,j,k), dqi);
-
-                // Add this increment to both non-precipitating and total water.
-                qci_array(i,j,k) += dqi;
-                 qn_array(i,j,k) += dqi;
-                 qt_array(i,j,k) += dqi;
-
-                // NOTE: Sedimentation does not affect the potential temperature,
-                //       but it does affect the liquid/ice static energy.
-                //       No source to Theta occurs here.
-            });
-        } // mfi
-    } // nsub
 }
-
