@@ -26,7 +26,7 @@ Morrison::Init (const MultiFab& cons_in,
                 std::unique_ptr<MultiFab>& z_phys_nd,
                 std::unique_ptr<MultiFab>& detJ_cc)
 {
-    amrex::Abort("Morrison not actually implemented yet; this is SAM");
+  //    amrex::Abort("Morrison not actually implemented yet; this is SAM");
 
     dt = dt_advance;
     m_geom = geom;

@@ -14,7 +14,7 @@ void
 Morrison::IceFall(const SolverChoice& /*sc*/)
 {
     BL_PROFILE("Morrison::IceFall()");
-
+    amrex::Print()<<"Got to IceFall"<<std::endl;
     // Local vertical indexing
     const int klo = zlo;
     const int khi = zhi;
