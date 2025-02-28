@@ -82,7 +82,21 @@ public:
         m_rdOcp    = sc.rdOcp;
     }
 
-    // init
+    /**
+     * Initializes the Microphysics module.
+     * 
+     * This function corresponds to:
+     * 1. MORR_TWO_MOMENT_INIT (lines 602-982) - Sets physical constants and parameters
+     * 2. Beginning of MORR_TWO_MOMENT_MICRO (lines 1840-2025) - Initializes arrays and
+     *    performs per-level calculations for thermodynamic variables
+     *
+     * @param[in] cons_in Conserved variables input
+     * @param[in] grids The boxes on which we will evolve the solution
+     * @param[in] geom Geometry associated with these MultiFabs and grids
+     * @param[in] dt_advance Timestep for the advance
+     * @param[in,out] z_phys_nd Physical heights at cell centers
+     * @param[in] detJ_cc Jacobian determinant at cell centers
+     */
     void
     Init (const amrex::MultiFab& cons_in,
           const amrex::BoxArray& grids,
@@ -90,6 +104,45 @@ public:
           const amrex::Real& dt_advance,
           std::unique_ptr<amrex::MultiFab>& z_phys_nd,
           std::unique_ptr<amrex::MultiFab>& detJ_cc) override;
+
+    /**
+     * Initializes physical constants and parameters.
+     * 
+     * Corresponds to MORR_TWO_MOMENT_INIT (lines 602-850)
+     * Sets up fall speed parameters, microphysical constants, and
+     * precomputed constants for efficiency.
+     */
+    void initialize_constants();
+
+    /**
+     * Calculates thermodynamic variables needed for microphysics.
+     * 
+     * Corresponds to beginning of MORR_TWO_MOMENT_MICRO (lines 1840-2025).
+     * Calculates latent heats, saturation vapor pressures, air density, etc.
+     * at each vertical level.
+     */
+    void initialize_thermodynamics();
+
+    /**
+     * Calculates saturation vapor pressure for water or ice.
+     * 
+     * Corresponds to POLYSVP function (lines 4068-4160).
+     * 
+     * @param[in] T Temperature in Kelvin
+     * @param[in] type 0 for liquid water, 1 for ice
+     * @return Saturation vapor pressure in Pascals
+     */
+    amrex::Real calc_saturation_vapor_pressure(const amrex::Real T, const int type) const;
+
+    /**
+     * Helper function for Gamma function calculation.
+     * 
+     * Corresponds to GAMMA function (lines 4200-4341).
+     * 
+     * @param[in] x Input value
+     * @return Value of the Gamma function at x
+     */
+    amrex::Real gamma_function(const amrex::Real x) const;
 
     // Copy state into micro vars
     void
@@ -329,5 +382,64 @@ private:
 
     amrex::TableData<amrex::Real, 1> gamaz;
     amrex::TableData<amrex::Real, 1> zmid; // mid value of vertical coordinate in physical domain
+
+    // Physical constants from Fortran (lines 650-675)
+    amrex::Real m_pi;          // Pi constant 
+    amrex::Real m_R;           // Gas constant for air
+    amrex::Real m_Rv;          // Gas constant for water vapor
+    amrex::Real m_rhosu;       // Standard air density at 850 mb
+    amrex::Real m_rhow;        // Density of liquid water
+    amrex::Real m_rhoi;        // Bulk density of cloud ice
+    amrex::Real m_rhosn;       // Bulk density of snow
+    amrex::Real m_rhog;        // Bulk density of graupel/hail
+
+    // Fall speed parameters (lines 630-645)
+    amrex::Real m_ai, m_bi;    // Cloud ice parameters
+    amrex::Real m_ac, m_bc;    // Cloud droplet parameters
+    amrex::Real m_as, m_bs;    // Snow parameters
+    amrex::Real m_ar, m_br;    // Rain parameters
+    amrex::Real m_ag, m_bg;    // Graupel/hail parameters
+
+    // Microphysical parameters (lines 680-704)
+    amrex::Real m_aimm;        // Parameter in Bigg immersion freezing
+    amrex::Real m_bimm;        // Parameter in Bigg immersion freezing
+    amrex::Real m_ecr;         // Collection efficiency
+    amrex::Real m_dcs;         // Threshold size for cloud ice autoconversion
+    amrex::Real m_mi0;         // Initial size of nucleated crystal
+    amrex::Real m_mg0;         // Mass of embryo graupel
+    amrex::Real m_f1s;         // Ventilation parameter for snow
+    amrex::Real m_f2s;         // Ventilation parameter for snow
+    amrex::Real m_f1r;         // Ventilation parameter for rain
+    amrex::Real m_f2r;         // Ventilation parameter for rain
+    amrex::Real m_qsmall;      // Smallest allowed hydrometeor mixing ratio
+    amrex::Real m_eii;         // Collection efficiency
+    amrex::Real m_eci;         // Collection efficiency
+    amrex::Real m_rin;         // Radius of contact nuclei
+    amrex::Real m_cpw;         // Specific heat of liquid water
+
+    // Size distribution parameters (lines 707-719)
+    amrex::Real m_ci, m_di;    // Cloud ice parameters
+    amrex::Real m_cs, m_ds;    // Snow parameters
+    amrex::Real m_cg, m_dg;    // Graupel parameters
+    amrex::Real m_mmult;       // Mass of splintered ice particle
+
+    // Lambda limits (lines 723-732)
+    amrex::Real m_lammaxi, m_lammini;  // Cloud ice limits
+    amrex::Real m_lammaxr, m_lamminr;  // Rain limits
+    amrex::Real m_lammaxs, m_lammins;  // Snow limits
+    amrex::Real m_lammaxg, m_lamming;  // Graupel limits
+
+    // Microphysics scheme options (lines 585-596)
+    int m_ihail = 0;    // IHAIL: 0=graupel, 1=hail
+    int m_inum = 1;     // INUM: 0=predict droplets, 1=constant droplets
+    int m_iact = 2;     // IACT: CCN activation method
+    int m_iliq = 0;     // ILIQ: 0=include ice, 1=liquid only
+    int m_inuc = 0;     // INUC: ice nucleation method
+    int m_ibase = 2;    // IBASE: droplet activation method
+    int m_isub = 0;     // ISUB: sub-grid vertical velocity for activation
+    int m_igraup = 0;   // IGRAUP: 0=include graupel, 1=no graupel
+    
+    // Constant droplet concentration (if INUM=1)
+    amrex::Real m_ndcnst = 250.0; // line 616
 };
 #endif
