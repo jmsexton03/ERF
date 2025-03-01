@@ -33,6 +33,13 @@ Morrison::Init(const MultiFab& cons_in,
     // Initialize physical constants
     initialize_constants();
 
+    // Set microphysics control parameters
+    m_activate_type = 2;  // Lognormal aerosol activation
+    m_inuc_type = 0;      // Mid-latitude ice nucleation (Cooper)
+    m_iliq = 0;           // Include ice processes
+    m_igraup = 0;         // Include graupel processes
+    m_ihail = 0;          // Use graupel (0) instead of hail (1)
+
     // Allocate internal MultiFabs for microphysics variables
     allocate_arrays(grids, geom);
 
@@ -51,11 +58,13 @@ Morrison::Init(const MultiFab& cons_in,
     // Initialize radar diagnostics if enabled
     if (m_do_radar_ref) {
         initialize_radar_parameters();
+        initialize_radar_reflectivity();
     }
 }
 
 /**
  * Initializes physical constants and parameters for the Morrison microphysics scheme.
+ * Includes all constants needed for the full range of microphysical processes.
  */
 void
 Morrison::initialize_constants()
@@ -125,7 +134,7 @@ Morrison::initialize_constants()
     m_f1s = 0.86;        // Ventilation parameter for snow
     m_f2s = 0.28;        // Ventilation parameter for snow
     m_f1r = 0.78;        // Ventilation parameter for rain
-    m_f2r = 0.308;       // Ventilation parameter for rain (fixed in v0.53011)
+    m_f2r = 0.308;       // Ventilation parameter for rain
 
     // Smallest allowed hydrometeor mixing ratio
     m_qsmall = 1.0E-14;
@@ -162,6 +171,44 @@ Morrison::initialize_constants()
     m_lammaxg = 1.0/20.0E-6;
     m_lamming = 1.0/2000.0E-6;
 
+    // Set CCN parameters for different environments
+    if (m_activate_type == 1) {
+        // Maritime CCN spectrum parameters (modified from Rasmussen et al. 2002)
+        // NCCN = C*S^K, where S is supersaturation in %
+        m_k1 = 0.4;        // Exponent in CCN activation formula
+        m_c1 = 120.0;      // Coefficient in CCN activation formula (cm^-3)
+    }
+
+    // Initialize aerosol activation parameters for lognormal distribution
+    if (m_activate_type == 2) {
+        // Parameters for ammonium sulfate
+        m_mw = 0.018;      // Molecular weight of water (kg/mol)
+        m_osm = 1.0;       // Osmotic coefficient
+        m_vi = 3.0;        // Number of ions dissociated in solution
+        m_epsm = 0.7;      // Aerosol soluble fraction
+        m_rhoa = 1777.0;   // Aerosol bulk density (kg/m^3)
+        m_map = 0.132;     // Molecular weight of aerosol (kg/mol)
+        m_ma = 0.0284;     // Molecular weight of air (kg/mol)
+        m_rr = 8.3145;     // Universal gas constant (J/mol/K)
+        m_bact = m_vi * m_osm * m_epsm * m_mw * m_rhoa / (m_map * m_rhow);
+        m_a_w = 2.0 * m_mw * 0.0761 / (m_rhow * m_r_v * 293.15);  // "A" parameter
+
+        // Aerosol size distribution parameters for MPACE (Morrison et al. 2007, JGR)
+        // Mode 1
+        m_rm1 = 0.052E-6;  // Geometric mean radius, mode 1 (m)
+        m_sig1 = 2.04;     // Standard deviation of aerosol size distribution, mode 1
+        m_nanew1 = 72.2E6; // Total aerosol concentration, mode 1 (m^-3)
+        m_f11 = 0.5 * std::exp(2.5 * std::pow(std::log(m_sig1), 2));
+        m_f21 = 1.0 + 0.25 * std::log(m_sig1);
+
+        // Mode 2
+        m_rm2 = 1.3E-6;    // Geometric mean radius, mode 2 (m)
+        m_sig2 = 2.5;      // Standard deviation of aerosol size distribution, mode 2
+        m_nanew2 = 1.8E6;  // Total aerosol concentration, mode 2 (m^-3)
+        m_f12 = 0.5 * std::exp(2.5 * std::pow(std::log(m_sig2), 2));
+        m_f22 = 1.0 + 0.25 * std::log(m_sig2);
+    }
+
     // Precompute constants for efficiency
     m_cons1 = gamma_function(1.0 + m_ds) * m_cs;
     m_cons2 = gamma_function(1.0 + m_dg) * m_cg;
@@ -177,10 +224,10 @@ Morrison::initialize_constants()
     m_cons12 = gamma_function(1.0 + m_di) * m_ci;
     m_cons13 = gamma_function(m_bs + 3.0) * m_pi / 4.0 * m_eci;
     m_cons14 = gamma_function(m_bg + 3.0) * m_pi / 4.0 * m_eci;
-    m_cons15 = -1108.0 * m_eii * std::pow(m_pi, (1.0-m_bs)/3.0) * 
+    m_cons15 = -1108.0 * m_eii * std::pow(m_pi, (1.0-m_bs)/3.0) *
                std::pow(m_rhosn, (-2.0-m_bs)/3.0) / (4.0*720.0);
     m_cons16 = gamma_function(m_bi + 3.0) * m_pi / 4.0 * m_eci;
-    m_cons17 = 4.0 * 2.0 * 3.0 * m_rhosu * m_pi * m_eci * m_eci * 
+    m_cons17 = 4.0 * 2.0 * 3.0 * m_rhosu * m_pi * m_eci * m_eci *
                gamma_function(2.0*m_bs + 2.0) / (8.0*(m_rhog-m_rhosn));
     m_cons18 = m_rhosn * m_rhosn;
     m_cons19 = m_rhow * m_rhow;
@@ -327,10 +374,10 @@ Morrison::copy_input_data(const MultiFab& cons_in)
     #endif
     for (MFIter mfi(*m_cons); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
-        
+
         // Get array accessors
         const auto& cons = m_cons->array(mfi);
-        
+
         // Initialize hydrometeors based on input data
         // This would typically be done by other init functions
         // called in initialize_thermodynamics and initialize_size_distributions
@@ -350,56 +397,56 @@ Morrison::initialize_thermodynamics(const Geometry& geom)
     const int p_comp = 1;   // Pressure
     const int qv_comp = 2;  // Water vapor mixing ratio
     const int rho_comp = 3; // Density
-    
+
     // Component indices for hydrometeors
     const int qc_comp = 0;  // Cloud water
     const int qr_comp = 1;  // Rain
     const int qi_comp = 2;  // Cloud ice
     const int qs_comp = 3;  // Snow
     const int qg_comp = 4;  // Graupel
-    
+
     // Calculate thermodynamic variables from conserved variables
     #ifdef AMREX_USE_OMP
     #pragma omp parallel if (Gpu::notInLaunchRegion())
     #endif
     for (MFIter mfi(*m_cons); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
-        
+
         // Get array accessors
         const auto& cons = m_cons->array(mfi);
         const auto& thermo = m_thermo->array(mfi);
         const auto& hydro = m_hydro->array(mfi);
-        
+
         // Calculate temperature, pressure, etc. from conserved variables
-        amrex::ParallelFor(box, 
+        amrex::ParallelFor(box,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 // This would calculate temperature, pressure, and other
                 // thermodynamic variables from density, momentum, and energy
-                
+
                 // Set minimum values for hydrometeor variables
                 hydro(i,j,k,qc_comp) = amrex::max(hydro(i,j,k,qc_comp), 0.0);
                 hydro(i,j,k,qr_comp) = amrex::max(hydro(i,j,k,qr_comp), 0.0);
                 hydro(i,j,k,qi_comp) = amrex::max(hydro(i,j,k,qi_comp), 0.0);
                 hydro(i,j,k,qs_comp) = amrex::max(hydro(i,j,k,qs_comp), 0.0);
                 hydro(i,j,k,qg_comp) = amrex::max(hydro(i,j,k,qg_comp), 0.0);
-                
+
                 // Calculate saturation vapor pressures
                 Real T = thermo(i,j,k,t_comp);
                 Real p = thermo(i,j,k,p_comp);
-                
+
                 // Water saturation vapor pressure
                 Real evs = amrex::min(0.99*p, calc_saturation_vapor_pressure(T, 0));
-                
+
                 // Ice saturation vapor pressure
                 Real eis = amrex::min(0.99*p, calc_saturation_vapor_pressure(T, 1));
-                
+
                 // Make sure ice saturation doesn't exceed water saturation near freezing
                 if (eis > evs) eis = evs;
-                
+
                 // Calculate saturation mixing ratios
                 Real qvs = m_ep_2 * evs / (p - evs);
                 Real qvi = m_ep_2 * eis / (p - eis);
-                
+
                 // Store these in thermodynamic variables array
                 // Component indices would continue here...
             }
@@ -424,39 +471,39 @@ Morrison::initialize_size_distributions()
     const int ni_comp = 7;  // Ice crystal number
     const int ns_comp = 8;  // Snow number
     const int ng_comp = 9;  // Graupel number
-    
+
     // Component indices for thermodynamic variables
     const int rho_comp = 3; // Density
-    
+
     // Initialize size distributions for hydrometeors
     #ifdef AMREX_USE_OMP
     #pragma omp parallel if (Gpu::notInLaunchRegion())
     #endif
     for (MFIter mfi(*m_hydro); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
-        
+
         // Get array accessors
         const auto& hydro = m_hydro->array(mfi);
         const auto& thermo = m_thermo->array(mfi);
-        
+
         // Initialize size distribution parameters
-        amrex::ParallelFor(box, 
+        amrex::ParallelFor(box,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 // Get density for this cell
                 Real rho = thermo(i,j,k,rho_comp);
-                
+
                 // Set constant droplet number concentration if specified
                 if (m_inum == 1) {
                     hydro(i,j,k,nc_comp) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
                 }
-                
+
                 // Make sure number concentrations are positive
                 hydro(i,j,k,nc_comp) = amrex::max(hydro(i,j,k,nc_comp), 0.0);
                 hydro(i,j,k,nr_comp) = amrex::max(hydro(i,j,k,nr_comp), 0.0);
                 hydro(i,j,k,ni_comp) = amrex::max(hydro(i,j,k,ni_comp), 0.0);
                 hydro(i,j,k,ns_comp) = amrex::max(hydro(i,j,k,ns_comp), 0.0);
                 hydro(i,j,k,ng_comp) = amrex::max(hydro(i,j,k,ng_comp), 0.0);
-                
+
                 // Calculate size distribution parameters for each hydrometeor species
                 // (Lambda, N0, etc.) based on mixing ratio and number concentration
                 // This would follow the same approach as the original FORTRAN code
@@ -479,7 +526,7 @@ Morrison::initialize_vertical_grid(std::unique_ptr<MultiFab>& z_phys_nd,
   // Store pointers to vertical grid information
     m_z_phys_nd = std::move(z_phys_nd);
     m_detJ_cc = std::move(detJ_cc);
-  */  
+  */
     // Initialize any sedimentation-specific parameters
     // For example: maximum allowed Courant number for sedimentation,
     // minimum allowed layer thickness, etc.
@@ -493,21 +540,21 @@ void
 Morrison::initialize_radar_parameters()
 {
     if (!m_do_radar_ref) return;
-    
+
     // Set up parameters for radar reflectivity calculations
     m_lambda_radar = 0.10;   // 10 cm wavelength
     m_k_w = 0.93;            // K_w parameter for liquid water
-    
+
     // Additional radar parameters from original code
     m_lamda4 = std::pow(m_lambda_radar, 4.0);
     m_pi5 = std::pow(m_pi, 5.0);
-    
+
     // Set up coefficients for melting calculations if needed
 }
 
 /**
  * Helper function to calculate the gamma function.
- * 
+ *
  * @param[in] x Input value
  * @return The gamma function evaluated at x
  */
@@ -516,21 +563,21 @@ Morrison::gamma_function(const Real x) const
 {
     // Implementation of gamma function using Lanczos approximation
     // or another suitable approximation method
-    
+
     // For this example, we'll use a simplified implementation
     if (x <= 0.0) {
         // Handle negative values with reflection formula if needed
         // For now, just return a large value as an error indicator
         return 1.0e30;
     }
-    
+
     // Stirling's approximation for large x
     if (x > 12.0) {
         Real y = x - 1.0;
-        return std::sqrt(2.0*m_pi) * std::pow(y, y+0.5) * std::exp(-y) * 
+        return std::sqrt(2.0*m_pi) * std::pow(y, y+0.5) * std::exp(-y) *
                (1.0 + 1.0/(12.0*y) + 1.0/(288.0*y*y) - 139.0/(51840.0*y*y*y));
     }
-    
+
     // For smaller x, use recursion with known values
     // Gamma(n+1) = n*Gamma(n)
     // Base case: Gamma(1) = 1
@@ -543,10 +590,10 @@ Morrison::gamma_function(const Real x) const
         }
         return result;
     }
-    
+
     // For non-integer values between 1 and 2, use a polynomial approximation
     // For a complete implementation, this would be more sophisticated
-    
+
     // For simplicity in this example:
     return std::tgamma(x); // Use standard library gamma function
 }
@@ -559,21 +606,21 @@ void
 Morrison::initialize_radar_reflectivity()
 {
    if (!m_do_radar_ref) return;
-   
+
    // Set up arrays for Simpson integration of reflectivity
    const int nrbins = 300;  // Number of bins for integration
-   
+
    // Allocate arrays for radar calculations
    m_xxds.resize(nrbins+1);
    m_xxdg.resize(nrbins+1);
    m_xdts.resize(nrbins+1);
    m_xdtg.resize(nrbins+1);
    m_simpson.resize(nrbins+1);
-   
+
    // Initialize arrays for reflectivity calculation
    Real maxD = 2.0e-2;  // Maximum diameter for integration (m)
    Real dD = maxD / nrbins;  // Diameter increment
-   
+
    // Set up integration arrays
    for (int n = 1; n <= nrbins; ++n) {
        m_xxds[n] = (n-0.5) * dD;
@@ -581,7 +628,7 @@ Morrison::initialize_radar_reflectivity()
        m_xdts[n] = dD;
        m_xdtg[n] = dD;
    }
-   
+
    // Simpson's rule integration weights
    m_simpson[1] = 1.0;
    for (int n = 2; n < nrbins; ++n) {
@@ -592,19 +639,19 @@ Morrison::initialize_radar_reflectivity()
        }
    }
    m_simpson[nrbins] = 1.0;
-   
+
    // Parameters for wet/melting hydrometeors
    // These would be the same as in the original code for the
    // rayleigh_soak_wetgraupel calculation
-   
+
    // Parameters for dielectric matrix calculation
    m_melt_outside_s = false;  // Liquid coating of melting snow
    m_melt_outside_g = true;   // Liquid coating of melting graupel
-   
+
    // Dielectric constants
    m_m_w_0 = std::complex<Real>(8.8, 0.4);  // Dielectric constant for water
    m_m_i_0 = std::complex<Real>(3.2, 0.0);  // Dielectric constant for ice
-   
+
    // Matrix and inclusion strings for different hydrometeors
    m_mixingrulestring_s = "maxwell";
    m_matrixstring_s = "water";
@@ -612,7 +659,7 @@ Morrison::initialize_radar_reflectivity()
    m_hoststring_s = "air";
    m_hostmatrixstring_s = "icewater";
    m_hostinclusionstring_s = "spheroidal";
-   
+
    m_mixingrulestring_g = "maxwell";
    m_matrixstring_g = "water";
    m_inclusionstring_g = "spheroidal";
