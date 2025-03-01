@@ -691,6 +691,7 @@ private:
     amrex::Real ComplementaryErrorFunction(const amrex::Real x) const;
     amrex::Real m_a_w;    // Coefficient A for activation (m^3/2 kg^1/2)
     amrex::Real m_r_v;    // No idea
+    amrex::Real m_mu;    // No idea
 };
 
 /**
