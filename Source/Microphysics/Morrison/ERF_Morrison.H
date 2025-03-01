@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <complex>
 
 #include <AMReX_FArrayBox.H>
 #include <AMReX_Geometry.H>
@@ -472,7 +473,6 @@ private:
     
     // Sedimentation parameters
     amrex::Real m_max_sediment_courant;  // Maximum allowed Courant for sedimentation
-    int zlo, zhi;              // Vertical domain limits
     
     // Utility methods
     
@@ -535,13 +535,106 @@ private:
      */
     amrex::Real gamma_function(const amrex::Real x) const;
     
-    /**
-     * Helper function to calculate saturation vapor pressure for water or ice.
-     * 
-     * @param[in] T Temperature in Kelvin
-     * @param[in] type 0 for liquid water, 1 for ice
-     * @return Saturation vapor pressure in Pascals
-     */
-    amrex::Real calc_saturation_vapor_pressure(const amrex::Real T, const int type) const;
+  /**
+   * Helper function to calculate saturation vapor pressure for water or ice.
+   * This corresponds to the POLYSVP function in the Fortran code (line ~5580).
+   * 
+   * @param[in] T Temperature in Kelvin
+   * @param[in] type 0 for liquid water, 1 for ice
+   * @return Saturation vapor pressure in Pascals
+   */
+  amrex::Real
+  calc_saturation_vapor_pressure(const amrex::Real T, const int type) const
+  {
+    amrex::Real polysvp = 0.0;
+    amrex::Real dt = T - 273.15;  // Convert to Celsius
+
+    if (type == 1) {  // Ice (lines ~5631-5644)
+      if (T >= 195.8) {
+        // Flatau et al. formula for ice
+        const amrex::Real a0i = 6.11147274;
+        const amrex::Real a1i = 0.503160820;
+        const amrex::Real a2i = 0.188439774e-1;
+        const amrex::Real a3i = 0.420895665e-3;
+        const amrex::Real a4i = 0.615021634e-5;
+        const amrex::Real a5i = 0.602588177e-7;
+        const amrex::Real a6i = 0.385852041e-9;
+        const amrex::Real a7i = 0.146898966e-11;
+        const amrex::Real a8i = 0.252751365e-14;
+            
+        polysvp = a0i + dt*(a1i + dt*(a2i + dt*(a3i + dt*(a4i + dt*(a5i + dt*(a6i + dt*(a7i + a8i*dt)))))));
+        polysvp *= 100.0;  // Convert from hPa to Pa
+      } else {
+        // Goff-Gratch formula for ice at cold temperatures
+        polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
+                                  0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
+      }
+    } else {  // Water (lines ~5648-5665)
+      if (T >= 202.0) {
+        // Flatau et al. formula for liquid water
+        const amrex::Real a0 = 6.11239921;
+        const amrex::Real a1 = 0.443987641;
+        const amrex::Real a2 = 0.142986287e-1;
+        const amrex::Real a3 = 0.264847430e-3;
+        const amrex::Real a4 = 0.302950461e-5;
+        const amrex::Real a5 = 0.206739458e-7;
+        const amrex::Real a6 = 0.640689451e-10;
+        const amrex::Real a7 = -0.952447341e-13;
+        const amrex::Real a8 = -0.976195544e-15;
+           
+        polysvp = a0 + dt*(a1 + dt*(a2 + dt*(a3 + dt*(a4 + dt*(a5 + dt*(a6 + dt*(a7 + a8*dt)))))));
+        polysvp *= 100.0;  // Convert from hPa to Pa
+      } else {
+        // Goff-Gratch formula for water at cold temperatures
+        polysvp = std::pow(10.0, (-7.90298*(373.16/T-1.0) + 5.02808*std::log10(373.16/T) -
+                                  1.3816e-7*(std::pow(10.0, (11.344*(1.0-T/373.16)))-1.0) +
+                                  8.1328e-3*(std::pow(10.0, (-3.49149*(373.16/T-1.0)))-1.0) +
+                                  std::log10(1013.246))) * 100.0;
+      }
+    }
+
+    return polysvp;
+  }
+  
 };
+
+/**
+ * Physical properties and constants namespace
+ * This namespace contains common physical constants used throughout the ERF code
+ */
+namespace PhysProp {
+    // Gas constants
+    constexpr amrex::Real R_d = 287.15;       // Gas constant for dry air (J/kg/K)
+    constexpr amrex::Real R_v = 461.5;        // Gas constant for water vapor (J/kg/K)
+    
+    // Specific heats
+    constexpr amrex::Real c_p = 1005.0;       // Specific heat at constant pressure for dry air (J/kg/K)
+    
+    // Molecular weight ratios
+    constexpr amrex::Real ep_2 = R_d / R_v;   // Molecular weight ratio (Rd/Rv)
+    
+    // Gravitational acceleration
+    constexpr amrex::Real g = 9.806;          // Gravitational acceleration (m/s^2)
+}
+
+/**
+ * Thermodynamic constants namespace
+ * Contains constants used for thermodynamic calculations
+ */
+namespace ThermoProp {
+    // Freezing point of water
+    constexpr amrex::Real t_freeze = 273.15;  // Freezing point of water (K)
+    
+    // Mixed-phase bounds
+    constexpr amrex::Real tbgmin = 253.15;    // Minimum temperature for mixed-phase (K)
+    constexpr amrex::Real tbgmax = 273.15;    // Maximum temperature for mixed-phase (K)
+    
+    // Homogeneous freezing threshold
+    constexpr amrex::Real t_homog_freeze = 233.15;  // Homogeneous freezing threshold (K)
+    
+    // Latent heats
+    constexpr amrex::Real lcond = 2.5e6;      // Latent heat of condensation (J/kg)
+    constexpr amrex::Real lfus = 3.336e5;     // Latent heat of fusion (J/kg)
+    constexpr amrex::Real lsub = lcond + lfus; // Latent heat of sublimation (J/kg)
+}
 #endif

@@ -28,7 +28,7 @@ Morrison::Init(const MultiFab& cons_in,
     BL_PROFILE("Morrison::Init()");
 
     // Store timestep
-    m_dt = dt_advance;
+    dt = dt_advance;
 
     // Initialize physical constants
     initialize_constants();
@@ -367,8 +367,8 @@ Morrison::initialize_thermodynamics(const Geometry& geom)
         
         // Get array accessors
         const auto& cons = m_cons->array(mfi);
-        auto& thermo = m_thermo->array(mfi);
-        auto& hydro = m_hydro->array(mfi);
+        const auto& thermo = m_thermo->array(mfi);
+        const auto& hydro = m_hydro->array(mfi);
         
         // Calculate temperature, pressure, etc. from conserved variables
         amrex::ParallelFor(box, 
@@ -436,7 +436,7 @@ Morrison::initialize_size_distributions()
         const Box& box = mfi.validbox();
         
         // Get array accessors
-        auto& hydro = m_hydro->array(mfi);
+        const auto& hydro = m_hydro->array(mfi);
         const auto& thermo = m_thermo->array(mfi);
         
         // Initialize size distribution parameters
@@ -475,10 +475,11 @@ void
 Morrison::initialize_vertical_grid(std::unique_ptr<MultiFab>& z_phys_nd,
                                   std::unique_ptr<MultiFab>& detJ_cc)
 {
-    // Store pointers to vertical grid information
+  /*
+  // Store pointers to vertical grid information
     m_z_phys_nd = std::move(z_phys_nd);
     m_detJ_cc = std::move(detJ_cc);
-    
+  */  
     // Initialize any sedimentation-specific parameters
     // For example: maximum allowed Courant number for sedimentation,
     // minimum allowed layer thickness, etc.
@@ -548,66 +549,6 @@ Morrison::gamma_function(const Real x) const
     
     // For simplicity in this example:
     return std::tgamma(x); // Use standard library gamma function
-}
-
-/**
- * Helper function to calculate saturation vapor pressure for water or ice.
- * 
- * @param[in] T Temperature in Kelvin
- * @param[in] type 0 for liquid water, 1 for ice
- * @return Saturation vapor pressure in Pascals
- */
-Real
-Morrison::calc_saturation_vapor_pressure(const Real T, const int type) const
-{
-    Real polysvp = 0.0;
-    Real dt = T - 273.15;  // Convert to Celsius
-
-    if (type == 1) {  // Ice
-        if (T >= 195.8) {
-            // Flatau et al. formula for ice
-            const Real a0i = 6.11147274;
-            const Real a1i = 0.503160820;
-            const Real a2i = 0.188439774e-1;
-            const Real a3i = 0.420895665e-3;
-            const Real a4i = 0.615021634e-5;
-            const Real a5i = 0.602588177e-7;
-            const Real a6i = 0.385852041e-9;
-            const Real a7i = 0.146898966e-11;
-            const Real a8i = 0.252751365e-14;
-            
-            polysvp = a0i + dt*(a1i + dt*(a2i + dt*(a3i + dt*(a4i + dt*(a5i + dt*(a6i + dt*(a7i + a8i*dt)))))));
-            polysvp *= 100.0;  // Convert from hPa to Pa
-        } else {
-            // Goff-Gratch formula for ice at cold temperatures
-            polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
-                      0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
-        }
-    } else {  // Water
-        if (T >= 202.0) {
-           // Flatau et al. formula for liquid water
-           const Real a0 = 6.11239921;
-           const Real a1 = 0.443987641;
-           const Real a2 = 0.142986287e-1;
-           const Real a3 = 0.264847430e-3;
-           const Real a4 = 0.302950461e-5;
-           const Real a5 = 0.206739458e-7;
-           const Real a6 = 0.640689451e-10;
-           const Real a7 = -0.952447341e-13;
-           const Real a8 = -0.976195544e-15;
-           
-           polysvp = a0 + dt*(a1 + dt*(a2 + dt*(a3 + dt*(a4 + dt*(a5 + dt*(a6 + dt*(a7 + a8*dt)))))));
-           polysvp *= 100.0;  // Convert from hPa to Pa
-       } else {
-           // Goff-Gratch formula for water at cold temperatures
-           polysvp = std::pow(10.0, (-7.90298*(373.16/T-1.0) + 5.02808*std::log10(373.16/T) -
-                     1.3816e-7*(std::pow(10.0, (11.344*(1.0-T/373.16)))-1.0) +
-                     8.1328e-3*(std::pow(10.0, (-3.49149*(373.16/T-1.0)))-1.0) +
-                     std::log10(1013.246))) * 100.0;
-       }
-   }
-
-   return polysvp;
 }
 
 /**

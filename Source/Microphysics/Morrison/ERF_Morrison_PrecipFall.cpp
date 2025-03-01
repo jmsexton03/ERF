@@ -75,7 +75,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             // Rain number concentration
             if (qpr(i,j,k) > m_qsmall) {
                 // Assuming typical raindrop diameter of ~1 mm
-                const amrex::Real typical_mass_r = 4.0/3.0 * amrex::Math::pi * m_rhow * std::pow(0.5e-3, 3);
+                const amrex::Real typical_mass_r = 4.0/3.0 *m_pi* m_rhow * std::pow(0.5e-3, 3);
                 nr(i,j,k) = qpr(i,j,k) / typical_mass_r;
             } else {
                 nr(i,j,k) = 0.0;
@@ -84,7 +84,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             // Snow number concentration
             if (qps(i,j,k) > m_qsmall) {
                 // Assuming typical snow diameter of ~2 mm
-                const amrex::Real typical_mass_s = 4.0/3.0 * amrex::Math::pi * m_rhosn * std::pow(1.0e-3, 3);
+                const amrex::Real typical_mass_s = 4.0/3.0 *m_pi* m_rhosn * std::pow(1.0e-3, 3);
                 ns(i,j,k) = qps(i,j,k) / typical_mass_s;
             } else {
                 ns(i,j,k) = 0.0;
@@ -93,7 +93,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             // Graupel number concentration
             if (qpg(i,j,k) > m_qsmall) {
                 // Assuming typical graupel diameter of ~3 mm
-                const amrex::Real typical_mass_g = 4.0/3.0 * amrex::Math::pi * m_rhog * std::pow(1.5e-3, 3);
+                const amrex::Real typical_mass_g = 4.0/3.0 *m_pi* m_rhog * std::pow(1.5e-3, 3);
                 ng(i,j,k) = qpg(i,j,k) / typical_mass_g;
             } else {
                 ng(i,j,k) = 0.0;
@@ -111,7 +111,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     // Rain fall speed
                     if (qpr(i,j,k) > m_qsmall) {
                         // Calculate lambda parameter for rain (line ~3692)
-                        const amrex::Real lamr = std::pow(amrex::Math::pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
+                        const amrex::Real lamr = std::pow(m_pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
                         
                         // Limit lambda to physical range
                         const amrex::Real lamr_limited = std::max(std::min(lamr, m_lammaxr), m_lamminr);
@@ -204,7 +204,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         if (qpr(i,j,k) > m_qsmall) {
                             // Calculate size distribution parameters
-                            amrex::Real lamr = std::pow(amrex::Math::pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
+                            amrex::Real lamr = std::pow(m_pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
                             
                             // Apply limits to lambda
                             lamr = std::max(lamr, m_lamminr);
