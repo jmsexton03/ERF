@@ -330,8 +330,6 @@ private:
     amrex::TableData<amrex::Real, 1> gamaz;
     amrex::TableData<amrex::Real, 1> zmid; // mid value of vertical coordinate in physical domain
 
-   // Member variables used in ERF_InitMorrison.cpp
-    
     // Microphysics options/switches
     int m_iact = 2;    // CCN activation option (1: power-law, 2: lognormal aerosol)
     int m_inum = 1;    // Droplet number option (0: predict, 1: constant)
@@ -404,7 +402,7 @@ private:
     // Aerosol activation parameters (for IACT = 2)
     amrex::Real m_mw;          // Molecular weight water (kg/mol)
     amrex::Real m_osm;         // Osmotic coefficient
-    amrex::Real m_vi;          // Number of ion dissociations
+    amrex::Real m_vi;          // Number of ions dissociated in solution
     amrex::Real m_epsm;        // Aerosol soluble fraction
     amrex::Real m_rhoa;        // Aerosol bulk density (kg/m^3)
     amrex::Real m_map;         // Molecular weight aerosol (kg/mol)
@@ -434,13 +432,36 @@ private:
     amrex::Real m_cons41;
     
     // Radar reflectivity parameters
-    amrex::Real m_xam_r, m_xbm_r, m_xmu_r;  // Rain
-    amrex::Real m_xam_s, m_xbm_s, m_xmu_s;  // Snow
-    amrex::Real m_xam_g, m_xbm_g, m_xmu_g;  // Graupel
-    amrex::Real m_lambda_radar;  // Radar wavelength
+    amrex::Real m_xam_r, m_xbm_r, m_xmu_r;  // Rain reflectivity parameters
+    amrex::Real m_xam_s, m_xbm_s, m_xmu_s;  // Snow reflectivity parameters
+    amrex::Real m_xam_g, m_xbm_g, m_xmu_g;  // Graupel reflectivity parameters
+    amrex::Real m_lambda_radar;  // Radar wavelength (10 cm)
     amrex::Real m_k_w;           // K_w parameter for liquid water
-    amrex::Real m_lamda4;        // Lambda^4 for radar calculations
-    amrex::Real m_pi5;           // Pi^5 for radar calculations
+    amrex::Real m_lamda4;        // Lambda^4 for radar calculation
+    amrex::Real m_pi5;           // Pi^5 for radar calculation
+    
+    // Radar arrays for Simpson integration
+    amrex::Vector<amrex::Real> m_xxds, m_xxdg;     // Diameter values
+    amrex::Vector<amrex::Real> m_xdts, m_xdtg;     // Diameter increments
+    amrex::Vector<amrex::Real> m_simpson;          // Simpson's rule weights
+    
+    // Parameters for radar melting calculations
+    bool m_melt_outside_s;     // Liquid coating of melting snow
+    bool m_melt_outside_g;     // Liquid coating of melting graupel
+    std::complex<amrex::Real> m_m_w_0;  // Dielectric constant for water
+    std::complex<amrex::Real> m_m_i_0;  // Dielectric constant for ice
+    std::string m_mixingrulestring_s;
+    std::string m_matrixstring_s;
+    std::string m_inclusionstring_s;
+    std::string m_hoststring_s;
+    std::string m_hostmatrixstring_s;
+    std::string m_hostinclusionstring_s;
+    std::string m_mixingrulestring_g;
+    std::string m_matrixstring_g;
+    std::string m_inclusionstring_g;
+    std::string m_hoststring_g;
+    std::string m_hostmatrixstring_g;
+    std::string m_hostinclusionstring_g;
     
     // Storage for internal state
     std::unique_ptr<amrex::MultiFab> m_cons;    // Conserved variables
@@ -449,7 +470,11 @@ private:
     std::unique_ptr<amrex::MultiFab> m_tend;    // Tendency variables
     std::unique_ptr<amrex::MultiFab> m_radar;   // Radar reflectivity
     
-    // Private methods used in ERF_InitMorrison.cpp
+    // Sedimentation parameters
+    amrex::Real m_max_sediment_courant;  // Maximum allowed Courant for sedimentation
+    int zlo, zhi;              // Vertical domain limits
+    
+    // Utility methods
     
     /**
      * Initializes physical constants and parameters for the Morrison microphysics scheme.
