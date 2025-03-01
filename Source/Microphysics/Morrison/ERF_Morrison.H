@@ -113,11 +113,12 @@ public:
         this->Copy_Micro_to_State(cons_in);
     }
 
-    // wrapper to do all the updating
+  
+  // wrapper to do all the updating
     void
     Advance (const amrex::Real& dt_advance,
-             const SolverChoice& sc) override
-    {
+             const SolverChoice& sc) override;
+    /*    {
         dt = dt_advance;
 
         this->Cloud(sc);
@@ -125,7 +126,7 @@ public:
         this->Precip(sc);
         this->PrecipFall(sc);
     }
-
+  */
     amrex::MultiFab*
     Qmoist_Ptr (const int& varIdx) override
     {
@@ -271,6 +272,91 @@ public:
      * @param[in] sc SolverChoice containing solver configuration
      */
     void ActivateCloudDroplets(const SolverChoice& sc);
+    /**
+     * Implements homogeneous freezing of cloud water and rain 
+     * below -40°C (233.15K)
+     *
+     * @param[in] dt_in Timestep (s)
+     */
+    void ApplyHomogeneousFreezing(const amrex::Real dt_in);
+    
+    /**
+     * Implements ice nucleation
+     * 
+     * @param[in] dt_in Timestep (s)
+     */
+    void ApplyIceNucleation(const amrex::Real dt_in);
+    
+    /**
+     * Implements heterogeneous freezing of cloud droplets and rain
+     * 
+     * @param[in] dt_in Timestep (s)
+     */
+    void ApplyHeterogeneousFreezing(const amrex::Real dt_in);
+    
+    /**
+     * Implements collisions between rain and ice particles
+     * 
+     * @param[in] dt_in Timestep (s)
+     */
+    void ApplyRainIceCollisions(const amrex::Real dt_in);
+    
+    /**
+     * Implements rime splintering (Hallet-Mossop process)
+     * Creates new ice splinters when riming occurs in specific temperature range
+     * 
+     * @param[in] dt_in Timestep (s)
+     */
+    void ApplyRimeSplintering(const amrex::Real dt_in);
+    
+    /**
+     * Performs water conservation checks for microphysical processes
+     * Ensures that process rates don't deplete more water than is available
+     * 
+     * @param[in,out] process_rates Array of process rates to be adjusted
+     * @param[in] available_water Available water for depletion (kg/kg)
+     * @param[in] dt_in Timestep (s)
+     * @return Scaling factor applied to process rates
+     */
+    amrex::Real EnforceWaterConservation(amrex::Vector<amrex::Real>& process_rates,
+                                      const amrex::Real available_water,
+                                      const amrex::Real dt_in);
+    
+    /**
+     * Computes radar reflectivity from hydrometeor properties.
+     * 
+     */
+    void ComputeRadarReflectivity();
+
+   /**
+     * Calculates supersaturation based on vertical velocity
+     *
+     * @param[in] w Vertical velocity (m/s)
+     * @param[in] T Temperature (K)
+     * @param[in] P Pressure (Pa)
+     * @param[in] qv Water vapor mixing ratio (kg/kg)
+     * @return Supersaturation ratio (0-1)
+     */
+    amrex::Real calculateSupersaturation(const amrex::Real w, 
+                                      const amrex::Real T, 
+                                      const amrex::Real P, 
+                                      const amrex::Real qv) const;
+    
+    /**
+     * Calculates the error function for CCN activation
+     * 
+     * @param[in] x Input value for error function
+     * @return Error function value
+     */
+    amrex::Real ErrorFunction(const amrex::Real x) const;
+    
+    /**
+     * Calculates the complementary error function (1-erf)
+     * 
+     * @param[in] x Input value
+     * @return Complementary error function value
+     */
+    amrex::Real ComplementaryErrorFunction(const amrex::Real x) const;
 
 private:
     // Number of qmoist variables (qt, qv, qcl, qci, qp, qpr, qps, qpg)
@@ -609,89 +695,17 @@ private:
     // Activation and nucleation parameters
     int m_activate_type;  // 0: None, 1: Power law, 2: Lognormal aerosol, 3: WRF-Chem coupled
     int m_inuc_type;      // 0: Mid-latitude (Cooper), 1: Arctic (MPACE)
-    
-    /**
-     * Implements homogeneous freezing of cloud water and rain 
-     * below -40°C (233.15K)
-     *
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyHomogeneousFreezing(const amrex::Real dt_in);
-    
-    /**
-     * Implements ice nucleation
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyIceNucleation(const amrex::Real dt_in);
-    
-    /**
-     * Implements heterogeneous freezing of cloud droplets and rain
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyHeterogeneousFreezing(const amrex::Real dt_in);
-    
-    /**
-     * Implements collisions between rain and ice particles
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyRainIceCollisions(const amrex::Real dt_in);
-    
-    /**
-     * Implements rime splintering (Hallet-Mossop process)
-     * Creates new ice splinters when riming occurs in specific temperature range
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyRimeSplintering(const amrex::Real dt_in);
-    
-    /**
-     * Performs water conservation checks for microphysical processes
-     * Ensures that process rates don't deplete more water than is available
-     * 
-     * @param[in,out] process_rates Array of process rates to be adjusted
-     * @param[in] available_water Available water for depletion (kg/kg)
-     * @param[in] dt_in Timestep (s)
-     * @return Scaling factor applied to process rates
-     */
-    amrex::Real EnforceWaterConservation(amrex::Vector<amrex::Real>& process_rates,
-                                      const amrex::Real available_water,
-                                      const amrex::Real dt_in);
-    
-    /**
-     * Calculates supersaturation based on vertical velocity
-     *
-     * @param[in] w Vertical velocity (m/s)
-     * @param[in] T Temperature (K)
-     * @param[in] P Pressure (Pa)
-     * @param[in] qv Water vapor mixing ratio (kg/kg)
-     * @return Supersaturation ratio (0-1)
-     */
-    amrex::Real calculateSupersaturation(const amrex::Real w, 
-                                      const amrex::Real T, 
-                                      const amrex::Real P, 
-                                      const amrex::Real qv) const;
-    
-    /**
-     * Calculates the error function for CCN activation
-     * 
-     * @param[in] x Input value for error function
-     * @return Error function value
-     */
-    amrex::Real ErrorFunction(const amrex::Real x) const;
-    
-    /**
-     * Calculates the complementary error function (1-erf)
-     * 
-     * @param[in] x Input value
-     * @return Complementary error function value
-     */
-    amrex::Real ComplementaryErrorFunction(const amrex::Real x) const;
+
     amrex::Real m_a_w;    // Coefficient A for activation (m^3/2 kg^1/2)
     amrex::Real m_r_v;    // No idea
     amrex::Real m_mu;    // No idea
+    amrex::Real npsacwg;    // No idea
+    amrex::Real prci;    // No idea
+    amrex::Real prai;    // No idea
+    amrex::Real psacr;    // No idea
+    amrex::Real nprci;    // No idea
+    amrex::Real nprai;    // No idea
+
 };
 
 /**
