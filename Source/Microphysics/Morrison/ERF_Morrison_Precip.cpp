@@ -505,6 +505,20 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
+            // 5. Self-Collection of Snow (NSAGG) - New Implementation
+            //----------------------------------------------------------------------
+            if (qs >= m_qsmall)
+            {
+                // This is a simplified implementation of snow self-collection
+                // following the logic from the Fortran code (around line 2400).
+                // It uses pre-computed constants for efficiency.
+
+                nragg = m_cons15 * m_as * std::pow(rho, (1.0 - m_bs) / 3.0) *
+                        std::pow(qs, (2.0 + m_bs) / 3.0) *
+                        std::pow(ns, (4.0 - m_bs) / 3.0);
+            }
+
+            //----------------------------------------------------------------------
             // 5. Water conservation checks - example of using the conservation logic
             //----------------------------------------------------------------------
 	    //F1938 
