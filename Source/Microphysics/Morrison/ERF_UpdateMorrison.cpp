@@ -91,6 +91,73 @@ Morrison::Advance(const amrex::Real& dt_advance,
     }
 }
 
+void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
+                                      const amrex::Real xocm,
+                                      const amrex::Real xobm,
+                                      const amrex::Real fmelt,
+                                      const bool melt_outside,
+                                      const std::complex<amrex::Real>& m_w_0,
+                                      const std::complex<amrex::Real>& m_i_0,
+                                      const amrex::Real lambda_radar,
+                                      amrex::Real& cback,
+                                      const std::string& mixingrulestring,
+                                      const std::string& matrixstring,
+                                      const std::string& inclusionstring,
+                                      const std::string& hoststring,
+                                      const std::string& hostmatrixstring,
+                                      const std::string& hostinclusionstring) const
+{
+    // Calculate particle diameter from mass
+    amrex::Real rho_particle;
+    if (hoststring == "snow") {
+        rho_particle = m_rhosn;
+    } else if (hoststring == "graupel") {
+        rho_particle = m_rhog;
+    } else {
+        rho_particle = m_rhosu;
+    }
+
+    amrex::Real diameter = std::pow((6.0 * x) / (m_pi * rho_particle), 1.0/3.0);
+
+    // Calculate effective dielectric constant based on mixing rule
+    std::complex<amrex::Real> m_eff;
+
+    if (mixingrulestring == "maxwell") {
+        // Maxwell-Garnett mixing rule
+        std::complex<amrex::Real> m_matrix, m_inclusion;
+
+        if (melt_outside) {
+            // Liquid coating (water outside, ice inside)
+            m_matrix = m_w_0;
+            m_inclusion = m_i_0;
+        } else {
+            // Ice coating (ice outside, water inside)
+            m_matrix = m_i_0;
+            m_inclusion = m_w_0;
+        }
+
+        // Volume fractions
+        amrex::Real vol_inclusion = melt_outside ? (1.0 - fmelt) : fmelt;
+
+        // Maxwell-Garnett formula
+        std::complex<amrex::Real> beta = (m_inclusion - m_matrix) /
+                                        (m_inclusion + 2.0 * m_matrix);
+        m_eff = m_matrix * (1.0 + 3.0 * vol_inclusion * beta) /
+                          (1.0 - vol_inclusion * beta);
+    } else {
+        // Simple volume-weighted average as fallback
+        m_eff = fmelt * m_w_0 + (1.0 - fmelt) * m_i_0;
+    }
+
+    // Calculate Rayleigh backscattering cross-section
+    amrex::Real k = 2.0 * m_pi / lambda_radar; // Wavenumber
+    std::complex<amrex::Real> K = (m_eff * m_eff - 1.0) / (m_eff * m_eff + 2.0);
+    amrex::Real K_squared = std::norm(K); // |K|^2
+
+    // Backscattering cross-section
+    cback = m_pi * m_pi * std::pow(diameter, 6) * K_squared / (lambda_radar * lambda_radar);
+}
+
 /**
  * Computes radar reflectivity from hydrometeor properties.
  * 
@@ -99,18 +166,18 @@ void
 Morrison::ComputeRadarReflectivity()
 {
     BL_PROFILE("Morrison::ComputeRadarReflectivity()");
-    
+
     if (!m_do_radar_ref || !m_radar) return;
-    
+
     // Loop through grids
     for (MFIter mfi(*m_thermo); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
-        
+
         // Get array data
         auto const& thermo = m_thermo->array(mfi);
         auto const& hydro = m_hydro->array(mfi);
         auto const& radar = m_radar->array(mfi);
-        
+
         // Component indices
         const int t_comp = 0;   // Temperature
         const int p_comp = 1;   // Pressure
@@ -120,52 +187,179 @@ Morrison::ComputeRadarReflectivity()
         const int nr_comp = 6;  // Rain number
         const int ns_comp = 8;  // Snow number
         const int ng_comp = 9;  // Graupel number
-        
+
         // ParallelFor loop over grid
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Default minimum reflectivity
             radar(i,j,k,0) = -35.0;
-            
+
             // Calculate reflectivity for rain, snow, and graupel
-            Real ze_rain = 1.0e-22;    // Minimum to avoid log issues
-            Real ze_snow = 1.0e-22;
-            Real ze_graupel = 1.0e-22;
-            
+            amrex::Real ze_rain = 1.0e-22;    // Minimum to avoid log issues
+            amrex::Real ze_snow = 1.0e-22;
+            amrex::Real ze_graupel = 1.0e-22;
+
             // Calculate rain reflectivity (if present)
             if (hydro(i,j,k,qr_comp) >= m_qsmall) {
-                const Real lamr = std::pow(M_PI * m_rhow * hydro(i,j,k,nr_comp) / hydro(i,j,k,qr_comp), 1.0/3.0);
-                const Real n0r = hydro(i,j,k,nr_comp) * lamr;
-                
-                ze_rain = n0r * m_cons4 / std::pow(lamr, 4.0 + m_br);
+                const amrex::Real lamr = std::pow(m_pi * m_rhow * hydro(i,j,k,nr_comp) / hydro(i,j,k,qr_comp), 1.0/3.0);
+                const amrex::Real n0r = hydro(i,j,k,nr_comp) * lamr;
+                //Corrected rain reflectivity
+                ze_rain = n0r * gamma_function(4.0 + m_br) / std::pow(lamr, 4.0 + m_br);
             }
-            
+
             // Calculate snow reflectivity (if present)
             if (hydro(i,j,k,qs_comp) >= m_qsmall) {
-                const Real lams = std::pow(m_cons1 * hydro(i,j,k,ns_comp) / hydro(i,j,k,qs_comp), 1.0/m_ds);
-                const Real n0s = hydro(i,j,k,ns_comp) * lams;
-                
-                // Dielectric factor for dry snow
-                ze_snow = (0.176/0.93) * std::pow(6.0/M_PI, 2.0) * 
-                          std::pow(m_rhosn/900.0, 2.0) * 
-                          n0s * m_cons3 / std::pow(lams, 4.0 + m_bs);
+                const amrex::Real lams = std::pow(m_cons1 * hydro(i,j,k,ns_comp) / hydro(i,j,k,qs_comp), 1.0/m_ds);
+                const amrex::Real n0s = hydro(i,j,k,ns_comp) * lams;
+
+                // Check if melting is occurring
+                if (thermo(i,j,k,t_comp) >= 273.15) {
+                    // Use rayleigh_soak_wetgraupel for melting snow
+                    amrex::Real cback_s = 0.0; // Initialize
+                    //Need to calculate fmelt_s, the melt fraction
+                    //This requires finding the level where melting begins, k_0
+                    //This is done in the outer loop, so pass 0 for now
+                    rayleigh_soak_wetgraupel(hydro(i,j,k,qs_comp), m_ds, m_bs, 0.0, m_melt_outside_s,
+                                             m_m_w_0, m_m_i_0, m_lambda_radar, cback_s,
+                                             m_mixingrulestring_s, m_matrixstring_s,
+                                             m_inclusionstring_s, m_hoststring_s,
+                                             m_hostmatrixstring_s, m_hostinclusionstring_s);
+                    ze_snow = cback_s * n0s * gamma_function(1.0 + m_bs) / std::pow(lams, 1.0 + m_bs); // Simplified
+                } else {
+                    // Dielectric factor for dry snow
+                    ze_snow = (0.176/0.93) * std::pow(6.0/m_pi, 2.0) *
+                              std::pow(m_rhosn/900.0, 2.0) *
+                              n0s * gamma_function(4.0 + m_bs) / std::pow(lams, 4.0 + m_bs);
+                }
             }
-            
+
             // Calculate graupel reflectivity (if present)
             if (hydro(i,j,k,qg_comp) >= m_qsmall) {
-                const Real lamg = std::pow(m_cons2 * hydro(i,j,k,ng_comp) / hydro(i,j,k,qg_comp), 1.0/m_dg);
-                const Real n0g = hydro(i,j,k,ng_comp) * lamg;
-                
-                // Dielectric factor for graupel
-                ze_graupel = (0.176/0.93) * std::pow(6.0/M_PI, 2.0) * 
-                             std::pow(m_rhog/900.0, 2.0) * 
-                             n0g * m_cons7 / std::pow(lamg, 4.0 + m_bg);
+                const amrex::Real lamg = std::pow(m_cons2 * hydro(i,j,k,ng_comp) / hydro(i,j,k,qg_comp), 1.0/m_dg);
+                const amrex::Real n0g = hydro(i,j,k,ng_comp) * lamg;
+
+                // Check if melting is occurring
+                if (thermo(i,j,k,t_comp) >= 273.15) {
+                    // Use rayleigh_soak_wetgraupel for melting graupel
+                    amrex::Real cback_g = 0.0;
+                    //Need to calculate fmelt_g, the melt fraction
+                    //This requires finding the level where melting begins, k_0
+                    //This is done in the outer loop, so pass 0 for now
+                    rayleigh_soak_wetgraupel(hydro(i,j,k,qg_comp), m_dg, m_bg, 0.0, m_melt_outside_g,
+                                             m_m_w_0, m_m_i_0, m_lambda_radar, cback_g,
+                                             m_mixingrulestring_g, m_matrixstring_g,
+                                             m_inclusionstring_g, m_hoststring_g,
+                                             m_hostmatrixstring_g, m_hostinclusionstring_g);
+                    ze_graupel = cback_g * n0g * gamma_function(1.0 + m_bg) / std::pow(lamg, 1.0 + m_bg); // Simplified
+                } else {
+                    // Dielectric factor for graupel
+                    ze_graupel = (0.176/0.93) * std::pow(6.0/m_pi, 2.0) *
+                                 std::pow(m_rhog/900.0, 2.0) *
+                                 n0g * gamma_function(4.0 + m_bg) / std::pow(lamg, 4.0 + m_bg);
+                }
             }
-            
-            // Calculate total reflectivity
-            radar(i,j,k,0) = 10.0 * std::log10((ze_rain + ze_snow + ze_graupel) * 1.0e18);
-            
+
+            // Calculate total reflectivity and convert to dBZ
+            radar(i,j,k,0) = 10.0 * std::log10(ze_rain + ze_snow + ze_graupel);
+
             // Ensure reflectivity is above minimum threshold
             radar(i,j,k,0) = amrex::max(radar(i,j,k,0), -35.0);
         });
+    }
+    // Find the melting level (k_0)
+    int k_0 = -1;
+    for (MFIter mfi(*m_thermo); mfi.isValid(); ++mfi) {
+        const Box& box = mfi.validbox();
+        auto const& thermo = m_thermo->array(mfi);
+        auto const& hydro = m_hydro->array(mfi);
+        auto const& radar = m_radar->array(mfi);
+        // Iterate from top down to find the first level where T > 273.15
+        // and there's both rain and snow/graupel present.
+        for (int k = box.bigEnd(2); k >= box.smallEnd(2); --k) {
+            for (int j = box.bigEnd(1); j >= box.smallEnd(1); --j) {
+                for (int i = box.bigEnd(0); i >= box.smallEnd(0); --i) {
+                    if (thermo(i,j,k,0) > 273.15 && hydro(i,j,k,1) > m_qsmall &&
+                        (hydro(i,j,k,3) > m_qsmall || hydro(i,j,k,4) > m_qsmall))
+                    {
+                        k_0 = k;
+                        break; // Found the level, exit the loop
+                    }
+                }
+            if (k_0 != -1) break;
+            }
+        if (k_0 != -1) break;
+        }
+    if (k_0 != -1) break; // Exit MFIter loop once k_0 is found.
+    }
+
+    // Now, re-calculate reflectivity for melting snow/graupel using the correct fmelt.
+    if (k_0 != -1) {
+        for (MFIter mfi(*m_thermo); mfi.isValid(); ++mfi) {
+            const Box& box = mfi.validbox();
+            auto const& thermo = m_thermo->array(mfi);
+            auto const& hydro = m_hydro->array(mfi);
+            auto const& radar = m_radar->array(mfi);
+
+            // Component indices
+            const int t_comp = 0;   // Temperature
+            const int p_comp = 1;   // Pressure
+            const int qr_comp = 1;  // Rain
+            const int qs_comp = 3;  // Snow
+            const int qg_comp = 4;  // Graupel
+            const int nr_comp = 6;  // Rain number
+            const int ns_comp = 8;  // Snow number
+            const int ng_comp = 9;  // Graupel number
+
+            amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+                // Only process levels below the melting level
+                if (k < k_0) {
+                    // Snow
+                    if (hydro(i,j,k,qs_comp) >= m_qsmall) {
+                        const amrex::Real lams = std::pow(m_cons1 * hydro(i,j,k,ns_comp) / hydro(i,j,k,qs_comp), 1.0/m_ds);
+                        const amrex::Real n0s = hydro(i,j,k,ns_comp) * lams;
+                        //Find total snow at k_0
+                        amrex::Real qs_k0 = 0.0;
+                        if (hydro(i,j,k_0,qs_comp) >= m_qsmall){
+                            qs_k0 = hydro(i,j,k_0,qs_comp);
+                        }
+                        amrex::Real fmelt_s = 1.0 - hydro(i,j,k,qs_comp) / qs_k0;
+                        fmelt_s = std::max(0.0, std::min(fmelt_s, 1.0)); // Ensure 0 <= fmelt <= 1
+
+                        amrex::Real cback_s = 0.0;
+                        rayleigh_soak_wetgraupel(hydro(i,j,k,qs_comp), m_ds, m_bs, fmelt_s, m_melt_outside_s,
+                                                 m_m_w_0, m_m_i_0, m_lambda_radar, cback_s,
+                                                 m_mixingrulestring_s, m_matrixstring_s,
+                                                 m_inclusionstring_s, m_hoststring_s,
+                                                 m_hostmatrixstring_s, m_hostinclusionstring_s);
+                        amrex::Real ze_snow = cback_s * n0s * gamma_function(1.0 + m_bs) / std::pow(lams, 1.0 + m_bs);
+                        // Update the snow reflectivity component
+                        radar(i,j,k,0) = 10.0 * std::log10(std::pow(10.0, radar(i,j,k,0) / 10.0) + ze_snow - 1.0e-22);
+                    }
+
+                    // Graupel
+                    if (hydro(i,j,k,qg_comp) >= m_qsmall) {
+                        const amrex::Real lamg = std::pow(m_cons2 * hydro(i,j,k,ng_comp) / hydro(i,j,k,qg_comp), 1.0/m_dg);
+                        const amrex::Real n0g = hydro(i,j,k,ng_comp) * lamg;
+                        //Find total graupel at k_0
+                        amrex::Real qg_k0 = 0.0;
+                        if (hydro(i,j,k_0,qg_comp) >= m_qsmall){
+                            qg_k0 = hydro(i,j,k_0,qg_comp);
+                        }
+                        amrex::Real fmelt_g = 1.0 - hydro(i,j,k,qg_comp) / qg_k0;
+                        fmelt_g = std::max(0.0, std::min(fmelt_g, 1.0)); // Ensure 0 <= fmelt <= 1
+
+                        amrex::Real cback_g = 0.0;
+                        rayleigh_soak_wetgraupel(hydro(i,j,k,qg_comp), m_dg, m_bg, fmelt_g, m_melt_outside_g,
+                                                 m_m_w_0, m_m_i_0, m_lambda_radar, cback_g,
+                                                 m_mixingrulestring_g, m_matrixstring_g,
+                                                 m_inclusionstring_g, m_hoststring_g,
+                                                 m_hostmatrixstring_g, m_hostinclusionstring_g);
+
+                        amrex::Real ze_graupel = cback_g * n0g * gamma_function(1.0 + m_bg) / std::pow(lamg, 1.0 + m_bg);
+                        // Update the graupel reflectivity component
+                        radar(i,j,k,0) = 10.0 * std::log10(std::pow(10.0, radar(i,j,k,0) / 10.0) + ze_graupel - 1.0e-22);
+                    }
+                }
+            });
+        }
     }
 }

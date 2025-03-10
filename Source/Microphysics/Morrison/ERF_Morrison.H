@@ -593,6 +593,41 @@ private:
      */
     amrex::Real gamma_function(const amrex::Real x) const;
     
+    /**
+     * Calculates the backscattering cross-section of a wet/melting hydrometeor.
+     * This function is based on the rayleigh_soak_wetgraupel subroutine in the Fortran code.
+     *
+     * @param[in] x Mass of the hydrometeor (kg)
+     * @param[in] xocm Shape parameter for size distribution
+     * @param[in] xobm Shape parameter for size distribution
+     * @param[in] fmelt Melt fraction (0-1)
+     * @param[in] melt_outside Flag for liquid coating (true if liquid is on the outside)
+     * @param[in] m_w_0 Dielectric constant of water
+     * @param[in] m_i_0 Dielectric constant of ice
+     * @param[in] lambda_radar Radar wavelength (m)
+     * @param[out] cback Backscattering cross-section (m^2)
+     * @param[in] mixingrulestring Mixing rule string (e.g., "maxwell")
+     * @param[in] matrixstring Matrix material string (e.g., "water")
+     * @param[in] inclusionstring Inclusion material string (e.g., "spheroidal")
+     * @param[in] hoststring Host material string (e.g., "air")
+     * @param[in] hostmatrixstring Host-matrix material string (e.g., "icewater")
+     * @param[in] hostinclusionstring Host-inclusion material string (e.g., "spheroidal")
+     */
+    void rayleigh_soak_wetgraupel(const amrex::Real x,
+                                  const amrex::Real xocm,
+                                  const amrex::Real xobm,
+                                  const amrex::Real fmelt,
+                                  const bool melt_outside,
+                                  const std::complex<amrex::Real>& m_w_0,
+                                  const std::complex<amrex::Real>& m_i_0,
+                                  const amrex::Real lambda_radar,
+                                  amrex::Real& cback,
+                                  const std::string& mixingrulestring,
+                                  const std::string& matrixstring,
+                                  const std::string& inclusionstring,
+                                  const std::string& hoststring,
+                                  const std::string& hostmatrixstring,
+                                  const std::string& hostinclusionstring) const;
   /**
    * Helper function to calculate saturation vapor pressure for water or ice.
    * This corresponds to the POLYSVP function in the Fortran code (line ~5580).
