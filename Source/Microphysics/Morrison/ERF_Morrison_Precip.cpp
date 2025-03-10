@@ -517,6 +517,20 @@ Morrison::Precip(const SolverChoice& sc)
                         std::pow(qs, (2.0 + m_bs) / 3.0) *
                         std::pow(ns, (4.0 - m_bs) / 3.0);
             }
+            //----------------------------------------------------------------------
+            // Collection of cloud ice by snow (PRAI and NPRAI) - Implementation
+            //----------------------------------------------------------------------
+            //F2377
+            if (qi >= m_qsmall && qs >= m_qsmall) {
+                // PRAI: Rate of change of snow mixing ratio due to collection of cloud ice
+                prai = m_cons23 * m_as * qi * rho * n0s / std::pow(lams, m_bs + 3.0);
+
+                // NPRAI: Rate of change of snow number concentration due to collection of cloud ice
+                nprai = m_cons23 * m_as * ni * rho * n0s / std::pow(lams, m_bs + 3.0);
+
+                // Limit NPRAI by the available cloud ice number concentration
+                nprai = amrex::min(nprai, ni / dt);
+            }
 
             //----------------------------------------------------------------------
             // 5. Water conservation checks - example of using the conservation logic
