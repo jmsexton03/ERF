@@ -162,6 +162,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 1. Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
             //----------------------------------------------------------------------
+	    //F1671
             if (qc >= 1.0e-6) {
                 prc = 1350.0 * std::pow(qc, 2.47) * 
                       std::pow(nc * rho / 1.0e6, -1.79);
@@ -178,6 +179,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 2. Rain-ice collisions - new process integration example
             //----------------------------------------------------------------------
+            //F2855
             if (temp <= 273.15 && qr >= 1.0e-8 && qi >= 1.0e-8) {
                 // Determine if rain is heavy enough to convert to graupel
                 const bool convert_to_graupel = (qr >= 0.1e-3);
@@ -217,6 +219,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 3. Rime splintering (HM process) - new process integration example
             //----------------------------------------------------------------------
+	    //F2602
             if (temp < t_hm_max && temp > t_hm_min) {
                 // Calculate temperature-dependent multiplication factor
                 amrex::Real fmult = 0.0;
@@ -239,12 +242,13 @@ Morrison::Precip(const SolverChoice& sc)
                     const bool cloud_threshold = (qc >= 0.5e-3);  // 0.5 g/kg
                     const bool rain_threshold = (qr >= 0.1e-3);   // 0.1 g/kg
                     
+		    //F2446
                     if (cloud_threshold || rain_threshold) {
                         // Accretion of cloud water by snow
                         if (cloud_threshold && qc > 0.0) {
                             psacws = m_cons13 * m_as * qc * rho * n0s / std::pow(lams, m_bs + 3.0);
                             npsacws = m_cons13 * m_as * nc * rho * n0s / std::pow(lams, m_bs + 3.0);
-                            
+                            //F2620                            
                             // Calculate splinters from cloud water riming
                             nmults = 35.0e4 * psacws * fmult * 1000.0;
                             qmults = nmults * mmult;
@@ -253,7 +257,7 @@ Morrison::Precip(const SolverChoice& sc)
                             qmults = amrex::min(qmults, psacws);
                             psacws -= qmults;
                         }
-                        
+                        //F3434
                         // Accretion of rain by snow
                         if (rain_threshold && qr > 0.0) {
                             // Terminal velocities
@@ -293,7 +297,7 @@ Morrison::Precip(const SolverChoice& sc)
                         }
                     }
                 }
-                
+		//F2654                
                 //----------------------------------------------------------------------
                 // 3b. Splintering from graupel riming
                 //----------------------------------------------------------------------
@@ -307,7 +311,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 4. Water conservation checks - example of using the conservation logic
             //----------------------------------------------------------------------
-            
+	    //F1938 
             // Cloud water conservation
             {
                 // Calculate total sink for cloud water
@@ -342,7 +346,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 5. Apply all tendency terms to the hydrometeor fields
             //----------------------------------------------------------------------
-            
+            //F1296 
             // Calculate latent heat terms
             const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;  // Latent heat of vaporization
             const amrex::Real xxls = 3.15e6 - 2370.0 * temp + 0.3337e6;  // Latent heat of sublimation
@@ -350,7 +354,7 @@ Morrison::Precip(const SolverChoice& sc)
             const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
             
             // Update tendencies for each variable
-            
+	    //F1995            
             // Water vapor
             tend(i,j,k,qv_comp) = -pre - evpms - evpmg;
             
