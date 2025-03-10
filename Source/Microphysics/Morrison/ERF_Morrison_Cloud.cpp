@@ -139,7 +139,7 @@ Morrison::Cloud(const SolverChoice& sc)
 
             // Update cloud droplet number concentration
             hydro(i,j,k,nc_comp) += pccn * dt;
-	});
+        });
 
         //----------------------------------------------------------------------
         // Handle homogeneous freezing of cloud water (replace existing code if any)
@@ -403,6 +403,89 @@ Morrison::Cloud(const SolverChoice& sc)
                 const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
                 
                 thermo(i,j,k,t_comp) += mnuc_limited * xlf / cpm * dt;
+            }
+        });
+
+        //----------------------------------------------------------------------
+        // Primary Ice Nucleation (NNUCCD, MNUCCD) - New Implementation
+        //----------------------------------------------------------------------
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k)
+        {
+            // Get local variables
+            const amrex::Real temp = thermo(i,j,k,t_comp);
+            const amrex::Real rho = thermo(i,j,k,rho_comp);
+            const amrex::Real qi = hydro(i,j,k,qi_comp);
+            const amrex::Real qs = hydro(i,j,k,qs_comp);
+            const amrex::Real qg = hydro(i,j,k,qg_comp);
+            const amrex::Real ni = hydro(i,j,k,ni_comp);
+            const amrex::Real ns = hydro(i,j,k,ns_comp);
+            const amrex::Real ng = hydro(i,j,k,ng_comp);
+
+            // Initialize nucleation rates
+            amrex::Real nnuccd = 0.0;
+            amrex::Real mnuccd = 0.0;
+
+            // Only proceed if below freezing
+            if (temp < t_freeze) {
+                // Calculate saturation vapor pressures (already done in saturation adjustment)
+                amrex::Real evs = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 0));
+                amrex::Real eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 1));
+                if (eis > evs) eis = evs;
+
+                // Calculate saturation mixing ratios
+                amrex::Real qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
+                amrex::Real qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+
+                // Calculate saturation ratios
+                amrex::Real qvqvs = hydro(i,j,k,qv_comp) / qvs;
+                amrex::Real qvqvsi = hydro(i,j,k,qv_comp) / qvi;
+
+                // Ice nucleation parameterization (Cooper 1986)
+                if (m_inuc_type == 0) { // Mid-latitude (Cooper)
+                    // Only activate if supersaturated with respect to ice
+                    // and below a certain temperature threshold
+                    if (qvqvsi >= 1.0 && temp <= 265.15) {
+                        // Calculate ice nucleation rate (per m^3)
+                        amrex::Real kc2 = 0.005 * std::exp(0.304 * (t_freeze - temp)) * 1000.0; // Convert from L^-1 to m^-3
+
+                        // Limit to a maximum value (e.g., 500 L^-1)
+                        kc2 = std::min(kc2, 500.0e3);
+
+                        // Convert to per kg
+                        kc2 = kc2 / rho;
+
+                        // Only nucleate if the nucleation rate exceeds existing ice number
+                        if (kc2 > ni + ns + ng) {
+                            nnuccd = (kc2 - (ni + ns + ng)) / dt;
+                            mnuccd = nnuccd * m_mi0; // m_mi0 is the initial mass of nucleated ice
+                        }
+                    }
+                }
+                // MPACE (Morrison et al. 2007)
+                else if (m_inuc_type == 1) { // Arctic (MPACE)
+                    // Only activate if supersaturated with respect to ice
+                    if (qvqvsi > 1.0) {
+                        // Constant nucleation rate (per m^3)
+                        amrex::Real kc2 = 0.16 * 1000.0; // Convert from L^-1 to m^-3
+
+                        // Convert to per kg
+                        kc2 = kc2 / rho;
+
+                        // Only nucleate if the nucleation rate exceeds existing ice number
+                        if (kc2 > ni + ns + ng) {
+                            nnuccd = (kc2 - (ni + ns + ng)) / dt;
+                            mnuccd = nnuccd * m_mi0; // m_mi0 is the initial mass of nucleated ice
+                        }
+                    }
+                }
+
+                // Apply nucleation (add to cloud ice)
+                hydro(i,j,k,qi_comp) += mnuccd * dt;
+                hydro(i,j,k,ni_comp) += nnuccd * dt;
+
+                // Apply latent heating
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
+                thermo(i,j,k,t_comp) += mnuccd * m_fac_sub * dt / cpm;
             }
         });
 
