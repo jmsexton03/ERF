@@ -376,7 +376,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 4. Rime splintering (HM process) - new process integration example
             //----------------------------------------------------------------------
-	    //F2602
+            //F2602
             if (temp < t_hm_max && temp > t_hm_min) {
                 // Calculate temperature-dependent multiplication factor
                 amrex::Real fmult = 0.0;
@@ -399,7 +399,7 @@ Morrison::Precip(const SolverChoice& sc)
                     const bool cloud_threshold = (qc >= 0.5e-3);  // 0.5 g/kg
                     const bool rain_threshold = (qr >= 0.1e-3);   // 0.1 g/kg
                     
-		    //F2446
+                    //F2446
                     if (cloud_threshold || rain_threshold) {
                         // Accretion of cloud water by snow
                         if (cloud_threshold && qc > 0.0) {
@@ -454,14 +454,39 @@ Morrison::Precip(const SolverChoice& sc)
                         }
                     }
                 }
-		//F2654                
+                //F2654                
                 //----------------------------------------------------------------------
                 // 4b. Splintering from graupel riming
                 //----------------------------------------------------------------------
+                // Process splinters from graupel riming if necessary conditions are met
                 if (qg >= 0.1e-3) {  // Only if graupel mixing ratio >= 0.1 g/kg
-                    // Similar implementation to snow HM process
-                    // Code follows the same structure as snow riming
-                    // Omitted for brevity
+                  // Threshold for liquid water content needed for HM-process
+                  const bool cloud_threshold = (qc >= 0.5e-3);  // 0.5 g/kg
+                  const bool rain_threshold = (qr >= 0.1e-3);   // 0.1 g/kg
+
+                  if (cloud_threshold || rain_threshold) {
+                    // Accretion of cloud water by graupel
+                    if (cloud_threshold && qc > 0.0) {
+                      // Calculate splinters from cloud water riming
+                      nmultg = 35.0e4 * psacwg * fmult * 1000.0;
+                      qmultg = nmultg * mmult;
+
+                      // Constrain to available rimed mass
+                      qmultg = amrex::min(qmultg, psacwg);
+                      psacwg -= qmultg;
+                    }
+
+                    // Accretion of rain by graupel
+                    if (rain_threshold && qr > 0.0) {
+                      // Calculate splinters from rain riming
+                      nmultrg = 35.0e4 * pracg * fmult * 1000.0;
+                      qmultrg = nmultrg * mmult;
+
+                      // Constrain to available rimed mass
+                      qmultrg = amrex::min(qmultrg, pracg);
+                      pracg -= qmultrg;
+                    }
+                  }
                 }
             }
             
@@ -496,7 +521,7 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             // 5. Water conservation checks - example of using the conservation logic
             //----------------------------------------------------------------------
-	    //F1938 
+            //F1938 
             // Cloud water conservation
             {
                 // Calculate total sink for cloud water
@@ -613,7 +638,7 @@ Morrison::Precip(const SolverChoice& sc)
             const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
             
             // Update tendencies for each variable
-	    //F1995            
+            //F1995            
             // Water vapor
             tend(i,j,k,qv_comp) = -pre - evpms - evpmg;
             
@@ -657,7 +682,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Update WRF-Chem quantities if needed
             // Record cloud-to-precipitation conversion for chemistry
             c2prec(i,j,k) = prc + pra + psacws + qmults + psacwg + qmultg;
-	    */
+            */
         });
     }
 }
