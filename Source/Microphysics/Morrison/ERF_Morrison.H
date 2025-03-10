@@ -272,42 +272,6 @@ public:
      * @param[in] sc SolverChoice containing solver configuration
      */
     void ActivateCloudDroplets(const SolverChoice& sc);
-    /**
-     * Implements homogeneous freezing of cloud water and rain 
-     * below -40°C (233.15K)
-     *
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyHomogeneousFreezing(const amrex::Real dt_in);
-    
-    /**
-     * Implements ice nucleation
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyIceNucleation(const amrex::Real dt_in);
-    
-    /**
-     * Implements heterogeneous freezing of cloud droplets and rain
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyHeterogeneousFreezing(const amrex::Real dt_in);
-    
-    /**
-     * Implements collisions between rain and ice particles
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyRainIceCollisions(const amrex::Real dt_in);
-    
-    /**
-     * Implements rime splintering (Hallet-Mossop process)
-     * Creates new ice splinters when riming occurs in specific temperature range
-     * 
-     * @param[in] dt_in Timestep (s)
-     */
-    void ApplyRimeSplintering(const amrex::Real dt_in);
     
     /**
      * Performs water conservation checks for microphysical processes
