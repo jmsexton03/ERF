@@ -90,45 +90,6 @@ Morrison::ComplementaryErrorFunction(const amrex::Real x) const
 }
 
 /**
- * Performs water conservation checks for microphysical processes
- * Ensures that process rates don't deplete more water than is available
- *
- * @param[in,out] process_rates Array of process rates to be adjusted
- * @param[in] available_water Available water for depletion (kg/kg)
- * @param[in] dt_in Timestep (s)
- * @return Scaling factor applied to process rates
- */
-amrex::Real
-Morrison::EnforceWaterConservation(amrex::Vector<amrex::Real>& process_rates,
-                                const amrex::Real available_water,
-                                const amrex::Real dt_in)
-{
-    // Calculate total depletion
-    amrex::Real total_depletion = 0.0;
-    for (int i = 0; i < process_rates.size(); i++) {
-        if (process_rates[i] < 0.0) {
-            total_depletion -= process_rates[i] * dt_in;
-        }
-    }
-
-    // If depletion exceeds available water, scale all rates
-    if (total_depletion > available_water && available_water > 0.0) {
-        amrex::Real scale_factor = available_water / total_depletion;
-
-        // Apply scaling to all negative (depletion) rates
-        for (int i = 0; i < process_rates.size(); i++) {
-            if (process_rates[i] < 0.0) {
-                process_rates[i] *= scale_factor;
-            }
-        }
-
-        return scale_factor;
-    }
-
-    return 1.0;  // No scaling needed
-}
-
-/**
  * Autoconversion (A30), Accretion (A28), Evaporation (A24)
  * This function implements the microphysical processes for precipitation formation
  * and evaporation. It corresponds to a subset of the processes in the WRF
@@ -563,9 +524,83 @@ Morrison::Precip(const SolverChoice& sc)
                     nmultg *= ratio;
                 }
             }
-            
-            // Similar conservation checks for rain, snow, ice, graupel
-            // Omitted for brevity
+            // Rain water conservation
+            {
+                // Calculate total sink for rain water
+                const amrex::Real sink_qr = (pracs + pracg + piacr + piacrs) * dt;
+
+                // Apply conservation if sink exceeds available
+                if (sink_qr > qr && qr >= m_qsmall) {
+                    const amrex::Real ratio = qr / sink_qr;
+
+                    // Rescale process rates
+                    pracs *= ratio;
+                    pracg *= ratio;
+                    piacr *= ratio;
+                    piacrs *= ratio;
+
+                    // Rescale number conversion rates
+                    npracs *= ratio;
+                    npracg *= ratio;
+                    niacr *= ratio;
+                    niacrs *= ratio;
+                }
+            }
+
+            // Cloud ice conservation
+            {
+                // Calculate total sink for cloud ice
+                const amrex::Real sink_qi = (prci + prai + praci + pracis) * dt;
+
+                // Apply conservation if sink exceeds available
+                if (sink_qi > qi && qi >= m_qsmall) {
+                    const amrex::Real ratio = qi / sink_qi;
+
+                    // Rescale process rates
+                    prci *= ratio;
+                    prai *= ratio;
+                    praci *= ratio;
+                    pracis *= ratio;
+
+                    // Rescale number conversion rates
+                    nprci *= ratio;
+                    nprai *= ratio;
+                    niacr *= ratio; // Shared with rain
+                    niacrs *= ratio; // Shared with rain
+                }
+            }
+
+            // Snow conservation
+            {
+                // Calculate total sink for snow
+                const amrex::Real sink_qs = (psacr) * dt;
+
+                // Apply conservation if sink exceeds available
+                if (sink_qs > qs && qs >= m_qsmall) {
+                    const amrex::Real ratio = qs / sink_qs;
+
+                    // Rescale process rates
+                    psacr *= ratio;
+                }
+            }
+
+            // Graupel conservation
+            {
+                // Calculate total sink for graupel
+                const amrex::Real sink_qg = (pgsacw + pgracs) * dt;
+
+                // Apply conservation if sink exceeds available
+                if (sink_qg > qg && qg >= m_qsmall) {
+                    const amrex::Real ratio = qg / sink_qg;
+
+                    // Rescale process rates
+                    pgsacw *= ratio;
+                    pgracs *= ratio;
+
+                    // Rescale number conversion rates (nscng and ngracs are tendencies, not rates)
+                    // No direct scaling needed here, as they are derived from mass tendencies
+                }
+            }
             
             //----------------------------------------------------------------------
             // 6. Apply all tendency terms to the hydrometeor fields
