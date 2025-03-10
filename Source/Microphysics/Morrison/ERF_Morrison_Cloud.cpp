@@ -37,7 +37,8 @@ Morrison::Cloud(const SolverChoice& sc)
         // Get array data
         auto const& thermo = m_thermo->array(mfi);
         auto const& hydro = m_hydro->array(mfi);
-        
+        auto const& w = m_thermo->array(mfi);  // Vertical velocity
+
         // Component indices for thermodynamic variables
         const int t_comp = 0;   // Temperature
         const int p_comp = 1;   // Pressure
@@ -55,6 +56,90 @@ Morrison::Cloud(const SolverChoice& sc)
         const int ni_comp = 7;  // Ice crystal number
         const int ns_comp = 8;  // Snow number
         const int ng_comp = 9;  // Graupel number
+
+        // Parallel execution over the box
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            // Get local variables
+            const amrex::Real temp = thermo(i,j,k,t_comp);
+            const amrex::Real pres = thermo(i,j,k,p_comp);
+            const amrex::Real qv = hydro(i,j,k,qv_comp);
+            const amrex::Real rho = thermo(i,j,k,rho_comp);
+            const amrex::Real qc = hydro(i,j,k,qc_comp);
+            const amrex::Real nc = hydro(i,j,k,nc_comp);
+            const amrex::Real w_local = w(i,j,k,3);  // Vertical velocity component
+
+            // Only activate if temperature is above freezing
+            if (temp <= 273.15) return;
+
+            // Only activate if there's little existing cloud water
+            // This follows the approach in the original Morrison scheme
+            if (qc > 0.05e-3) return;
+
+            // Calculate effective vertical velocity (grid-scale + sub-grid)
+            // Sub-grid velocity is set to 0.5 m/s following the original scheme
+            amrex::Real w_eff = w_local;
+            if (m_isub == 0) {
+                w_eff = std::sqrt(w_local*w_local + 0.5*0.5);
+            }
+
+            // Only activate if upward motion
+            if (w_eff <= 0.01) return;
+
+            // Calculate supersaturation based on vertical velocity
+            amrex::Real supersat = calculateSupersaturation(w_eff, temp, pres, qv);
+
+            // Number of activated CCN (per kg)
+            amrex::Real nact = 0.0;
+
+            // Power-law CCN spectra (IACT = 1)
+            if (m_iact == 1) {
+                // NCCN = C*S^K, where S is supersaturation in %
+                // Convert from cm^-3 to kg^-1
+                nact = m_c1 * std::pow(supersat*100.0, m_k1) * 1.0e6 / rho;
+            }
+            // Lognormal aerosol size distribution (IACT = 2)
+            else if (m_iact == 2) {
+                // Calculate critical supersaturation for activation
+                // First calculate parameters for activation
+                amrex::Real alpha = std::pow(2.0*m_mw*0.0761/(m_rhow*m_r_v*temp), 1.5);
+                amrex::Real gamma = m_r_v*temp*m_rhow/(m_mw*0.0761);
+                amrex::Real psi = 2.0/3.0 * std::sqrt(alpha/gamma);
+
+                // Calculate maximum supersaturation based on Ghan et al. (1993)
+                amrex::Real eta1 = std::pow(supersat/(m_f11*m_nanew1), 1.0/m_f21);
+                amrex::Real eta2 = std::pow(supersat/(m_f12*m_nanew2), 1.0/m_f22);
+                amrex::Real smax = supersat;
+
+                // Calculate number activated from each mode
+                amrex::Real uu1 = 2.0*std::log(m_rm1/m_bact) / (3.0*std::sqrt(2.0)*std::log(m_sig1));
+                amrex::Real uu2 = 2.0*std::log(m_rm2/m_bact) / (3.0*std::sqrt(2.0)*std::log(m_sig2));
+
+                // Calculate number activated using error function
+                amrex::Real n1 = 0.5*m_nanew1*(1.0 - ErrorFunction(uu1));
+                amrex::Real n2 = 0.5*m_nanew2*(1.0 - ErrorFunction(uu2));
+
+                // Total number activated (convert from m^-3 to kg^-1)
+                nact = (n1 + n2) / rho;
+            }
+
+            // Limit activation to reasonable values
+            nact = std::min(nact, 1.0e10);
+
+            // Don't activate more than available CCN
+            // For simplicity, assume total CCN concentration is 1000 cm^-3
+            const amrex::Real nccn_max = 1000.0e6 / rho;  // Convert from cm^-3 to kg^-1
+            nact = std::min(nact, nccn_max);
+
+            // Don't activate if we already have more droplets than would be activated
+            if (nc >= nact) return;
+
+            // Calculate activation rate (number/kg/s)
+            // Only activate the difference between current and activated number
+            amrex::Real pccn = (nact - nc) / dt;
+
+            // Update cloud droplet number concentration
+            hydro(i,j,k,nc_comp) += pccn * dt;
+	});
 
         //----------------------------------------------------------------------
         // Handle homogeneous freezing of cloud water (replace existing code if any)
@@ -238,7 +323,8 @@ Morrison::Cloud(const SolverChoice& sc)
             if (hydro(i,j,k,qc_comp) < m_qsmall) hydro(i,j,k,qc_comp) = 0.0;
             if (hydro(i,j,k,qi_comp) < m_qsmall) hydro(i,j,k,qi_comp) = 0.0;
         });
-        
+
+
         //----------------------------------------------------------------------
         // Add heterogeneous freezing of cloud droplets (new code)
         //----------------------------------------------------------------------

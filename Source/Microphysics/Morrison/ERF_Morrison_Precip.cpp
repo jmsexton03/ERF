@@ -5,6 +5,130 @@
 #include <cmath>
 
 /**
+ * Calculates supersaturation based on vertical velocity
+ *
+ * @param[in] w Vertical velocity (m/s)
+ * @param[in] T Temperature (K)
+ * @param[in] P Pressure (Pa)
+ * @param[in] qv Water vapor mixing ratio (kg/kg)
+ * @return Supersaturation ratio (0-1)
+ */
+amrex::Real
+Morrison::calculateSupersaturation(const amrex::Real w,
+                                const amrex::Real T,
+                                const amrex::Real P,
+                                const amrex::Real qv) const
+{
+    // Constants
+    const amrex::Real g = 9.81;       // Gravity (m/s^2)
+    const amrex::Real cp = 1005.0;    // Specific heat of air (J/kg/K)
+    const amrex::Real Lv = 2.5e6;     // Latent heat of vaporization (J/kg)
+    const amrex::Real Rv = 461.5;     // Gas constant for water vapor (J/kg/K)
+    const amrex::Real Ra = 287.0;     // Gas constant for dry air (J/kg/K)
+
+    // Calculate saturation vapor pressure
+    amrex::Real es = calc_saturation_vapor_pressure(T, 0);  // Water saturation vapor pressure
+
+    // Calculate saturation mixing ratio
+    amrex::Real qs = 0.622 * es / (P - es);
+
+    // Calculate derivative of saturation mixing ratio with respect to temperature
+    amrex::Real dqsdt = (Lv * qs) / (Rv * T * T);
+
+    // Calculate supersaturation using simplified formula from Abdul-Razzak et al. (1998)
+    amrex::Real alpha = g * w / (Ra * T);
+    amrex::Real gamma = (Ra * T) / (es * Lv * Lv) * (cp * Ra * T + Lv * Lv * qs);
+
+    // Calculate supersaturation
+    amrex::Real supersat = alpha / gamma;
+
+    // Ensure reasonable values
+    supersat = std::max(supersat, 0.0);
+    supersat = std::min(supersat, 0.05);  // Cap at 5% supersaturation
+
+    return supersat;
+}
+
+/**
+ * Calculates the error function for CCN activation
+ *
+ * @param[in] x Input value for error function
+ * @return Error function value
+ */
+amrex::Real
+Morrison::ErrorFunction(const amrex::Real x) const
+{
+    // Constants for approximation
+    const amrex::Real a1 = 0.254829592;
+    const amrex::Real a2 = -0.284496736;
+    const amrex::Real a3 = 1.421413741;
+    const amrex::Real a4 = -1.453152027;
+    const amrex::Real a5 = 1.061405429;
+    const amrex::Real p = 0.3275911;
+
+    // Save the sign of x
+    int sign = (x < 0) ? -1 : 1;
+    amrex::Real absx = std::abs(x);
+
+    // Approximation formula
+    amrex::Real t = 1.0 / (1.0 + p * absx);
+    amrex::Real y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * std::exp(-absx * absx);
+
+    return sign * y;
+}
+
+/**
+ * Calculates the complementary error function (1-erf)
+ *
+ * @param[in] x Input value
+ * @return Complementary error function value
+ */
+amrex::Real
+Morrison::ComplementaryErrorFunction(const amrex::Real x) const
+{
+    return 1.0 - ErrorFunction(x);
+}
+
+/**
+ * Performs water conservation checks for microphysical processes
+ * Ensures that process rates don't deplete more water than is available
+ *
+ * @param[in,out] process_rates Array of process rates to be adjusted
+ * @param[in] available_water Available water for depletion (kg/kg)
+ * @param[in] dt_in Timestep (s)
+ * @return Scaling factor applied to process rates
+ */
+amrex::Real
+Morrison::EnforceWaterConservation(amrex::Vector<amrex::Real>& process_rates,
+                                const amrex::Real available_water,
+                                const amrex::Real dt_in)
+{
+    // Calculate total depletion
+    amrex::Real total_depletion = 0.0;
+    for (int i = 0; i < process_rates.size(); i++) {
+        if (process_rates[i] < 0.0) {
+            total_depletion -= process_rates[i] * dt_in;
+        }
+    }
+
+    // If depletion exceeds available water, scale all rates
+    if (total_depletion > available_water && available_water > 0.0) {
+        amrex::Real scale_factor = available_water / total_depletion;
+
+        // Apply scaling to all negative (depletion) rates
+        for (int i = 0; i < process_rates.size(); i++) {
+            if (process_rates[i] < 0.0) {
+                process_rates[i] *= scale_factor;
+            }
+        }
+
+        return scale_factor;
+    }
+
+    return 1.0;  // No scaling needed
+}
+
+/**
  * Autoconversion (A30), Accretion (A28), Evaporation (A24)
  * This function implements the microphysical processes for precipitation formation
  * and evaporation. It corresponds to a subset of the processes in the WRF
@@ -63,7 +187,8 @@ Morrison::Precip(const SolverChoice& sc)
         amrex::Real pre, prds, prg, evpms, evpmg;
         amrex::Real nmults, nmultr, qmults, qmultr;
         amrex::Real nmultg, nmultrg, qmultg, qmultrg;
-        
+        amrex::Real pccn; // CCN activation rate
+
             // Get local variables
             const amrex::Real temp = thermo(i,j,k,t_comp);
             const amrex::Real pres = thermo(i,j,k,p_comp);
@@ -89,7 +214,8 @@ Morrison::Precip(const SolverChoice& sc)
             pre = 0.0; prds = 0.0; prg = 0.0; evpms = 0.0; evpmg = 0.0;
             nmults = 0.0; nmultr = 0.0; qmults = 0.0; qmultr = 0.0;
             nmultg = 0.0; nmultrg = 0.0; qmultg = 0.0; qmultrg = 0.0;
-            
+            pccn = 0.0;
+
             // Calculate size distribution parameters for all hydrometeors
             amrex::Real lamr = 0.0, lams = 0.0, lamg = 0.0, lami = 0.0, lamc = 0.0;
             amrex::Real n0r = 0.0, n0s = 0.0, n0g = 0.0, n0i = 0.0;
@@ -160,9 +286,79 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 1. Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
+            // 1. CCN Activation - New process added for cloud droplet activation
             //----------------------------------------------------------------------
-	    //F1671
+            if (temp > 273.15) {  // Only activate above freezing
+                // Only activate if there's little existing cloud water
+                if (qc < 0.05e-3) {
+                    // Calculate effective vertical velocity (grid-scale + sub-grid)
+                    // Sub-grid velocity is set to 0.5 m/s following the original scheme
+                    amrex::Real w_local = thermo(i,j,k,3);  // Vertical velocity component
+                    amrex::Real w_eff = w_local;
+                    if (m_isub == 0) {
+                        w_eff = std::sqrt(w_local*w_local + 0.5*0.5);
+                    }
+
+                    // Only activate if upward motion
+                    if (w_eff > 0.01) {
+                        // Calculate supersaturation based on vertical velocity
+                        amrex::Real supersat = calculateSupersaturation(w_eff, temp, pres, qv);
+
+                        // Number of activated CCN (per kg)
+                        amrex::Real nact = 0.0;
+
+                        // Power-law CCN spectra (IACT = 1)
+                        if (m_iact == 1) {
+                            // NCCN = C*S^K, where S is supersaturation in %
+                            // Convert from cm^-3 to kg^-1
+                            nact = m_c1 * std::pow(supersat*100.0, m_k1) * 1.0e6 / rho;
+                        }
+                        // Lognormal aerosol size distribution (IACT = 2)
+                        else if (m_iact == 2) {
+                            // Calculate critical supersaturation for activation
+                            // First calculate parameters for activation
+                            amrex::Real alpha = std::pow(2.0*m_mw*0.0761/(m_rhow*m_r_v*temp), 1.5);
+                            amrex::Real gamma = m_r_v*temp*m_rhow/(m_mw*0.0761);
+                            amrex::Real psi = 2.0/3.0 * std::sqrt(alpha/gamma);
+
+                            // Calculate maximum supersaturation based on Ghan et al. (1993)
+                            amrex::Real eta1 = std::pow(supersat/(m_f11*m_nanew1), 1.0/m_f21);
+                            amrex::Real eta2 = std::pow(supersat/(m_f12*m_nanew2), 1.0/m_f22);
+                            amrex::Real smax = supersat;
+
+                            // Calculate number activated from each mode
+                            amrex::Real uu1 = 2.0*std::log(m_rm1/m_bact) / (3.0*std::sqrt(2.0)*std::log(m_sig1));
+                            amrex::Real uu2 = 2.0*std::log(m_rm2/m_bact) / (3.0*std::sqrt(2.0)*std::log(m_sig2));
+
+                            // Calculate number activated using error function
+                            amrex::Real n1 = 0.5*m_nanew1*(1.0 - ErrorFunction(uu1));
+                            amrex::Real n2 = 0.5*m_nanew2*(1.0 - ErrorFunction(uu2));
+
+                            // Total number activated (convert from m^-3 to kg^-1)
+                            nact = (n1 + n2) / rho;
+                        }
+
+                        // Limit activation to reasonable values
+                        nact = std::min(nact, 1.0e10);
+
+                        // Don't activate more than available CCN
+                        // For simplicity, assume total CCN concentration is 1000 cm^-3
+                        const amrex::Real nccn_max = 1000.0e6 / rho;  // Convert from cm^-3 to kg^-1
+                        nact = std::min(nact, nccn_max);
+
+                        // Don't activate if we already have more droplets than would be activated
+                        if (nc < nact) {
+                            // Calculate activation rate (number/kg/s)
+                            // Only activate the difference between current and activated number
+                            pccn = (nact - nc) / dt;
+                        }
+                    }
+                }
+            }
+
+            //----------------------------------------------------------------------
+            // 2. Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
+            //----------------------------------------------------------------------
             if (qc >= 1.0e-6) {
                 prc = 1350.0 * std::pow(qc, 2.47) * 
                       std::pow(nc * rho / 1.0e6, -1.79);
@@ -177,7 +373,7 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 2. Rain-ice collisions - new process integration example
+            // 3. Rain-ice collisions - new process integration example
             //----------------------------------------------------------------------
             //F2855
             if (temp <= 273.15 && qr >= 1.0e-8 && qi >= 1.0e-8) {
@@ -217,7 +413,7 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 3. Rime splintering (HM process) - new process integration example
+            // 4. Rime splintering (HM process) - new process integration example
             //----------------------------------------------------------------------
 	    //F2602
             if (temp < t_hm_max && temp > t_hm_min) {
@@ -235,7 +431,7 @@ Morrison::Precip(const SolverChoice& sc)
                 }
                 
                 //----------------------------------------------------------------------
-                // 3a. Splintering from snow riming
+                // 4a. Splintering from snow riming
                 //----------------------------------------------------------------------
                 if (qs >= 0.1e-3) {  // Only if snow mixing ratio >= 0.1 g/kg
                     // Threshold for liquid water content needed for HM-process
@@ -299,7 +495,7 @@ Morrison::Precip(const SolverChoice& sc)
                 }
 		//F2654                
                 //----------------------------------------------------------------------
-                // 3b. Splintering from graupel riming
+                // 4b. Splintering from graupel riming
                 //----------------------------------------------------------------------
                 if (qg >= 0.1e-3) {  // Only if graupel mixing ratio >= 0.1 g/kg
                     // Similar implementation to snow HM process
@@ -309,7 +505,7 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 4. Water conservation checks - example of using the conservation logic
+            // 5. Water conservation checks - example of using the conservation logic
             //----------------------------------------------------------------------
 	    //F1938 
             // Cloud water conservation
@@ -344,7 +540,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Omitted for brevity
             
             //----------------------------------------------------------------------
-            // 5. Apply all tendency terms to the hydrometeor fields
+            // 6. Apply all tendency terms to the hydrometeor fields
             //----------------------------------------------------------------------
             //F1296 
             // Calculate latent heat terms
