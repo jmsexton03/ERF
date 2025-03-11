@@ -503,6 +503,50 @@ Morrison::Precip(const SolverChoice& sc)
                         std::pow(qs, (2.0 + m_bs) / 3.0) *
                         std::pow(ns, (4.0 - m_bs) / 3.0);
             }
+
+            //----------------------------------------------------------------------
+            // 12. Autoconversion of Cloud Ice to Snow (PRCI and NPRCI)
+            //----------------------------------------------------------------------
+            //F2352
+            // Starting temperature
+            amrex::Real T = thermo(i,j,k,t_comp);
+            
+            // Calculate the saturation values at current temperature
+            amrex::Real evs = std::min(0.99*thermo(i,j,k,p_comp), 
+                                     calc_saturation_vapor_pressure(T, 0)); // Water saturation
+            amrex::Real eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 1));
+            if (eis > evs) eis = evs;
+
+            // Calculate saturation mixing ratios
+            amrex::Real qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
+            amrex::Real qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+            const amrex::Real dum = m_Rv * T * T;
+            const amrex::Real dqsdt = (3.1484e6 - 2370.0 * T) * qvs / dum;
+            if (qi >= m_qsmall && temp < t_freezing) {
+                // Calculate size distribution parameter for cloud ice
+                if (ni >= m_qsmall)
+                {
+                    lami = std::pow(m_cons12 * ni / qi, 1.0 / m_di);
+
+                    // Apply limits to lambda
+                    lami = amrex::max(lami, m_lammini);
+                    lami = amrex::min(lami, m_lammaxi);
+
+                    // Check if mean size exceeds threshold (2*DCS)
+                    if (1.0 / lami >= 2.0 * m_dcs) {
+                        // Autoconversion rate (mass)
+                        prci = m_cons21 * (qv - qvi) * rho * n0i *
+                            std::exp(-lami * m_dcs) * m_fac_sub / (1.0 + m_fac_sub * dqsdt);
+
+                        // Autoconversion rate (number)
+                        nprci = prci / m_cons22;
+
+                        // Limit by available cloud ice
+                        nprci = amrex::min(nprci, ni / dt);
+                    }
+                }
+            }
+
             //----------------------------------------------------------------------
             // Collection of cloud ice by snow (PRAI and NPRAI) - Implementation
             //----------------------------------------------------------------------
