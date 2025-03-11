@@ -318,6 +318,19 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
+            // 3. Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
+            //----------------------------------------------------------------------
+            if (qc >= 1.0e-6 && qr >= 1.0e-6) {
+                pra = 13.4 * std::pow(rho * qc, 0.18) * std::pow(qr, 0.65) * std::pow(rho, 0.65);
+
+                // Calculate number accretion rate
+                npra = pra / (qc / nc);
+
+                // Limit by available cloud water
+                npra = amrex::min(npra, nc / dt);
+            }
+
+            //----------------------------------------------------------------------
             // 2. Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
             //----------------------------------------------------------------------
             if (qc >= 1.0e-6) {
@@ -491,17 +504,15 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 5. Self-Collection of Snow (NSAGG) - New Implementation
+            // 4. Self-collection/breakup of rain (Verlinde and Cotton 1993, modification)
             //----------------------------------------------------------------------
-            if (qs >= m_qsmall)
+            if (qr >= m_qsmall)
             {
-                // This is a simplified implementation of snow self-collection
-                // following the logic from the Fortran code (around line 2400).
-                // It uses pre-computed constants for efficiency.
+                // Critical diameter for breakup (Verlinde and Cotton 1993)
+                amrex::Real Dcr = 1.2e-3; // 1.2 mm
 
-                nragg = m_cons15 * m_as * std::pow(rho, (1.0 - m_bs) / 3.0) *
-                        std::pow(qs, (2.0 + m_bs) / 3.0) *
-                        std::pow(ns, (4.0 - m_bs) / 3.0);
+                // Breakup rate (Verlinde and Cotton 1993, modified)
+                nragg = -5.78 * (1.0 - std::exp(-2300.0 * (1.0 / lamr - Dcr))) * nr * qr * rho;
             }
 
             //----------------------------------------------------------------------
