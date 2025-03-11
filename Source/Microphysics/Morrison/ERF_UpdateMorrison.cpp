@@ -521,5 +521,6 @@ Morrison::ComputeRadarReflectivity()
                 const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);
                 tend(i,j,k,t_comp) += -(prd + prds + prdg) * m_fac_sub / cpm;
             });
+
         }
     }

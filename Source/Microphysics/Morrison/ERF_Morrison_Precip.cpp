@@ -670,7 +670,95 @@ Morrison::Precip(const SolverChoice& sc)
                     // No direct scaling needed here, as they are derived from mass tendencies
                 }
             }
-            
+            //----------------------------------------------------------------------
+            // 14. Accelerated Melting of Snow and Graupel due to Rain Collisions
+            //----------------------------------------------------------------------
+            //F3950
+            // Only apply if above freezing
+            if (temp >= t_freezing) {
+                const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;  // Latent heat of vaporization
+                const amrex::Real xxls = 3.15e6 - 2370.0 * temp + 0.3337e6;  // Latent heat of sublimation
+                const amrex::Real xlf = xxls - xxlv;  // Latent heat of fusion
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
+
+	        //------------------------------------------------------------------
+                // 14a. Accelerated Melting of Snow
+                //------------------------------------------------------------------
+                if (qs >= m_qsmall && qr >= m_qsmall) {
+                    // Calculate size distribution parameters (already done above)
+
+                    // Calculate mass-weighted fall speeds (already done in PrecipFall)
+                    amrex::Real ums = m_as * m_cons3 / std::pow(lams, m_bs);
+                    amrex::Real umr = m_ar * m_cons4 / std::pow(lamr, m_br);
+
+                    // Density correction (already done in PrecipFall)
+                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
+                    ums = amrex::min(ums, 1.2 * dum);
+                    umr = amrex::min(umr, 9.1 * dum);
+
+                    // Calculate collection rate of rain by snow (already done in pracs)
+                    // We reuse the pracs calculation, but it represents
+                    // the mass of *rain* collected by snow, not the other way around.
+                    pracs = m_cons41 * (std::sqrt(std::pow(1.2*umr-0.95*ums, 2) +
+                                   0.08*ums*umr) * rho * n0r * n0s / std::pow(lamr, 3.0) *
+                                   (5.0 / (std::pow(lamr, 3.0) * lams) +
+                                    2.0 / (std::pow(lamr, 2.0) * std::pow(lams, 2.0)) +
+                                    0.5 / (lamr * std::pow(lams, 3.0))));
+
+                    // Calculate accelerated melting rate due to rain collisions
+                    // Use Celsius for temperature, as in the Fortran code
+                    amrex::Real psmlt_accel = -m_cpw / xlf * (temp - t_freezing) * pracs;
+
+                    // Limit melting by available snow
+                    psmlt_accel = std::max(psmlt_accel, -qs / dt);
+
+                    // Apply melting tendency
+                    prds += psmlt_accel;  // Add to existing snow deposition/sublimation
+                    pre += psmlt_accel; // Add to rain production
+
+                    // Apply latent cooling
+                    tend(i,j,k,t_comp) -= psmlt_accel * xlf / cpm;
+                }
+
+                //------------------------------------------------------------------
+                // 14b. Accelerated Melting of Graupel
+                //------------------------------------------------------------------
+                if (qg >= m_qsmall && qr >= m_qsmall) {
+                    // Calculate size distribution parameters (already done above)
+
+                    // Calculate mass-weighted fall speeds (already done in PrecipFall)
+                    amrex::Real umg = m_ag * m_cons7 / std::pow(lamg, m_bg);
+                    amrex::Real umr = m_ar * m_cons4 / std::pow(lamr, m_br);
+
+                    // Density correction (already done in PrecipFall)
+                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
+                    umg = amrex::min(umg, 20.0 * dum);
+                    umr = amrex::min(umr, 9.1 * dum);
+
+                    // Calculate collection rate of rain by graupel (already done in pracg)
+                    // We reuse the pracg calculation.
+                    pracg = m_cons41 * (std::sqrt(std::pow(1.2*umr-0.95*umg, 2) +
+                                   0.08*umg*umr) * rho * n0r * n0g / std::pow(lamr, 3.0) *
+                                   (5.0 / (std::pow(lamr, 3.0) * lamg) +
+                                    2.0 / (std::pow(lamr, 2.0) * std::pow(lamg, 2.0)) +
+                                    0.5 / (lamr * std::pow(lamg, 3.0))));
+
+                    // Calculate accelerated melting rate due to rain collisions
+                    // Use Celsius for temperature, as in the Fortran code
+                    amrex::Real pgmlt_accel = -m_cpw / xlf * (temp - t_freezing) * pracg;
+
+                    // Limit melting by available graupel
+                    pgmlt_accel = std::max(pgmlt_accel, -qg / dt);
+
+                    // Apply melting tendency
+                    prg += pgmlt_accel;   // Add to existing graupel deposition/sublimation
+                    pre += pgmlt_accel; // Add to rain
+
+                    // Apply latent cooling
+                    tend(i,j,k,t_comp) -= pgmlt_accel * xlf / cpm;
+                }
+            }           
+
             //----------------------------------------------------------------------
             // 6. Apply all tendency terms to the hydrometeor fields
             //----------------------------------------------------------------------
