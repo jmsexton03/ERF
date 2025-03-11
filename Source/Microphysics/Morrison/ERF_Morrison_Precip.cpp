@@ -563,6 +563,39 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
+            // 15. Conversion of Rimed Cloud Water to Graupel (PGSACW and NSCNG)
+            //----------------------------------------------------------------------
+            //F2477
+            if (qs >= m_qsmall && qc >= m_qsmall) {
+                // Only convert if snow and cloud water mixing ratios are significant
+                if (qs >= 0.1e-3 && qc >= 0.5e-3) {
+                    // Calculate mass-weighted fall speeds (already done in PrecipFall)
+                    amrex::Real ums = m_as * m_cons3 / std::pow(lams, m_bs);
+
+                    // Density correction (already done in PrecipFall)
+                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
+                    ums = amrex::min(ums, 1.2 * dum);
+
+                    // Calculate collection rate of cloud water by snow (already done in psacws)
+                    psacws = m_cons13 * m_as * qc * rho * n0s / std::pow(lams, m_bs + 3.0);
+
+                    // Calculate portion of riming converted to graupel (Reisner et al. 1998)
+                    pgsacw = amrex::min(psacws, m_cons17 * dt * n0s * qc * qc *
+                                       m_as * m_as / (rho * std::pow(lams, 2.0 * m_bs + 2.0)));
+
+                    // Calculate mass of embryo graupel (already initialized)
+                    // Calculate number concentration of embryo graupel from riming of snow
+                    nscng = (m_rhosn / (m_rhog - m_rhosn) * pgsacw) / m_mg0 * rho;
+
+                    // Limit by available snow number
+                    nscng = amrex::min(nscng, ns / dt);
+
+                    // Remaining riming goes to snow
+                    psacws -= pgsacw;
+                }
+            }
+
+            //----------------------------------------------------------------------
             // 5. Water conservation checks - example of using the conservation logic
             //----------------------------------------------------------------------
             //F1938 
