@@ -70,7 +70,10 @@ Morrison::Advance(const amrex::Real& dt_advance,
     // 5. CLOUD PROCESSES
     // Cloud phase thermodynamics and saturation adjustment
     Cloud(sc);
-    
+
+    // 3. Sublimation/Deposition of Ice Species
+    SublimationDeposition(sc);
+
     // 6. ICE SEDIMENTATION
     // Cloud ice sedimentation
     if (m_iliq == 0) {  // Skip if liquid-only mode is active
@@ -363,3 +366,160 @@ Morrison::ComputeRadarReflectivity()
         }
     }
 }
+
+    /**
+     * Calculates sublimation/deposition rates for ice, snow, and graupel.
+     *
+     * @param[in] sc SolverChoice containing solver configuration
+     */
+    void Morrison::SublimationDeposition(const SolverChoice& sc)
+    {
+        BL_PROFILE("Morrison::SublimationDeposition()");
+
+        // Loop through grids
+        for (amrex::MFIter mfi(*m_hydro); mfi.isValid(); ++mfi) {
+            const amrex::Box& box = mfi.validbox();
+
+            // Get array data
+            auto const& thermo = m_thermo->array(mfi);
+            auto const& hydro = m_hydro->array(mfi);
+            auto const& tend = m_tend->array(mfi);
+
+            // Component indices for thermodynamic variables
+            const int t_comp = 0;   // Temperature
+            const int p_comp = 1;   // Pressure
+            const int qv_comp = 2;  // Water vapor mixing ratio
+            const int rho_comp = 3; // Density
+
+            // Component indices for hydrometeors
+            const int qc_comp = 0;  // Cloud water
+            const int qr_comp = 1;  // Rain
+            const int qi_comp = 2;  // Cloud ice
+            const int qs_comp = 3;  // Snow
+            const int qg_comp = 4;  // Graupel
+            const int nc_comp = 5;  // Cloud droplet number
+            const int nr_comp = 6;  // Rain drop number
+            const int ni_comp = 7;  // Ice crystal number
+            const int ns_comp = 8;  // Snow number
+            const int ng_comp = 9;  // Graupel number
+
+            // Get table data for coefficients
+            auto const& evaps1_t = evaps1.table();
+            auto const& evaps2_t = evaps2.table();
+            auto const& evapg1_t = evapg1.table();
+            auto const& evapg2_t = evapg2.table();
+            auto const& tabs1d_t = tabs1d.table();
+
+            // Parallel execution over the box
+            amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+                // Local variables
+                const amrex::Real temp = thermo(i,j,k,t_comp);
+                const amrex::Real pres = thermo(i,j,k,p_comp);
+                const amrex::Real qv = hydro(i,j,k,qv_comp);
+                const amrex::Real rho = thermo(i,j,k,rho_comp);
+                const amrex::Real qi = hydro(i,j,k,qi_comp);
+                const amrex::Real qs = hydro(i,j,k,qs_comp);
+                const amrex::Real qg = hydro(i,j,k,qg_comp);
+                const amrex::Real ni = hydro(i,j,k,ni_comp);
+                const amrex::Real ns = hydro(i,j,k,ns_comp);
+                const amrex::Real ng = hydro(i,j,k,ng_comp);
+
+                // Vertical index for 1D profile data
+                const int k_1d = k - m_geom.ProbLo(2) / m_geom.CellSize(2);
+
+                // Initialize process rates
+                amrex::Real prd = 0.0;   // Deposition/sublimation of cloud ice
+                amrex::Real prds = 0.0;  // Deposition/sublimation of snow
+                amrex::Real prdg = 0.0;  // Deposition/sublimation of graupel
+                amrex::Real eprd = 0.0;
+                amrex::Real eprds = 0.0;
+                amrex::Real eprdg = 0.0;
+
+                // Calculate saturation vapor pressures
+                amrex::Real evs = std::min(0.99*pres, calc_saturation_vapor_pressure(temp, 0));
+                amrex::Real eis = std::min(0.99*pres, calc_saturation_vapor_pressure(temp, 1));
+                if (eis > evs) eis = evs;
+
+                // Calculate saturation mixing ratios
+                amrex::Real qvs = m_ep_2 * evs / (pres - evs);
+                amrex::Real qvi = m_ep_2 * eis / (pres - eis);
+
+                // Calculate saturation ratios
+                amrex::Real qvqvs = qv / qvs;
+                amrex::Real qvqvsi = qv / qvi;
+
+                // 1. Cloud Ice Sublimation/Deposition
+                if (qi >= m_qsmall) {
+                    // Calculate size distribution parameter for cloud ice
+                    amrex::Real lami = std::pow(m_cons12 * ni / qi, 1.0/m_di);
+
+                    // Apply limits to lambda
+                    lami = amrex::max(lami, m_lammini);
+                    lami = amrex::min(lami, m_lammaxi);
+
+                    // Calculate deposition/sublimation rate (mass)
+                    // Only include region of ice size dist < DCS
+                    amrex::Real dum = (1.0 - std::exp(-lami * m_dcs) * (1.0 + lami * m_dcs));
+                    prd = 2.0 * M_PI * ni * rho * (qv - qvi) /
+                           (rho * ((m_fac_sub / (tabs1d_t(k_1d) * m_Rv) - 1.0) * m_fac_sub /
+			   (1.414E3 * 1.496E-6 * std::pow(tabs1d_t(k_1d),1.5) / (tabs1d_t(k_1d) + 120.0) * tabs1d_t(k_1d)) +
+                           m_Rv * tabs1d_t(k_1d) / (8.794E-5 * std::pow(tabs1d_t(k_1d),1.81) / pres * eis))) *
+                           dum / (1.0 + (3.15e6 - 2370.0 * temp + 0.3337e6) * (3.15e6 - 2370.0 * temp + 0.3337e6) * qvi /
+                           (m_Rv * temp * temp) * m_fac_sub / (m_cp * (1.0 + 0.887 * qv)));
+                    if (prd < 0.0) eprd = prd;
+                }
+
+                // 2. Snow Sublimation/Deposition
+                if (qs >= m_qsmall) {
+                    // Calculate size distribution parameter for snow
+                    amrex::Real lams = std::pow(m_cons1 * ns / qs, 1.0/m_ds);
+
+                    // Apply limits to lambda
+                    lams = amrex::max(lams, m_lammins);
+                    lams = amrex::min(lams, m_lammaxs);
+
+                    // Calculate deposition/sublimation rate (mass)
+                    prds = (qv - qvi) /
+                           (rho * ((m_fac_sub / (tabs1d_t(k_1d) * m_Rv) - 1.0) * m_fac_sub /
+                           (1.414E3 * 1.496E-6 * std::pow(tabs1d_t(k_1d),1.5) / (tabs1d_t(k_1d) + 120.0) * tabs1d_t(k_1d)) +
+                                   m_Rv * tabs1d_t(k_1d) / (8.794E-5 * std::pow(tabs1d_t(k_1d),1.81) / pres * eis))) *
+                           (evaps1_t(k_1d) + evaps2_t(k_1d) / std::pow(lams, m_bs / 2.0));
+                    if (qi < m_qsmall) prds = prds + prd; //Add deposition from cloud ice if no cloud ice
+                    if (prds < 0.0) eprds = prds;
+                }
+
+                // 3. Graupel Sublimation/Deposition
+                if (qg >= m_qsmall) {
+                    // Calculate size distribution parameter for graupel
+                    amrex::Real lamg = std::pow(m_cons2 * ng / qg, 1.0/m_dg);
+
+                    // Apply limits to lambda
+                    lamg = amrex::max(lamg, m_lamming);
+                    lamg = amrex::min(lamg, m_lammaxg);
+
+                    // Calculate deposition/sublimation rate (mass)
+                    prdg = (qv - qvi) /
+                           (rho * ((m_fac_sub / (tabs1d_t(k_1d) * m_Rv) - 1.0) * m_fac_sub /
+                           (1.414E3 * 1.496E-6 * std::pow(tabs1d_t(k_1d),1.5) / (tabs1d_t(k_1d) + 120.0) * tabs1d_t(k_1d)) +
+                           m_Rv * tabs1d_t(k_1d) / (8.794E-5 * std::pow(tabs1d_t(k_1d),1.81) / pres * eis))) *
+                           (evapg1_t(k_1d) + evapg2_t(k_1d) / std::pow(lamg, m_bg / 2.0));
+                    if (prdg < 0.0) eprdg = prdg;
+                }
+
+                // Apply limits to prevent excessive sublimation
+                eprd = std::max(eprd, -qi / dt);
+                eprds = std::max(eprds, -qs / dt);
+                eprdg = std::max(eprdg, -qg / dt);
+
+                // Update tendencies
+                tend(i,j,k,qv_comp) += prd + prds + prdg;
+                tend(i,j,k,qi_comp) += prd;
+                tend(i,j,k,qs_comp) += prds;
+                tend(i,j,k,qg_comp) += prdg;
+
+                // Latent heating/cooling
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);
+                tend(i,j,k,t_comp) += -(prd + prds + prdg) * m_fac_sub / cpm;
+            });
+        }
+    }

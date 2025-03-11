@@ -62,6 +62,8 @@ public:
     // cloud physics
     void Cloud (const SolverChoice& sc);
 
+    void SublimationDeposition(const SolverChoice& sc);
+
     // ice physics
     void IceFall (const SolverChoice& sc);
 
