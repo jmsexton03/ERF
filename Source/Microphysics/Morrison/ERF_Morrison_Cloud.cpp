@@ -169,7 +169,34 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro(i,j,k,nc_comp) = 0.0;
             }
         });
-        
+        //----------------------------------------------------------------------
+        // Homogeneous freezing of rain (replace existing code if any)
+        //----------------------------------------------------------------------
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            // Homogeneous freezing of rain (all rain freezes below threshold)
+            if (thermo(i,j,k,t_comp) <= t_homog_freeze && hydro(i,j,k,qr_comp) >= m_qsmall) {
+                // Convert all rain water to graupel
+                hydro(i,j,k,qg_comp) += hydro(i,j,k,qr_comp);
+
+                // Apply latent heating
+                const amrex::Real xxlv = 3.1484e6 - 2370.0 * thermo(i,j,k,t_comp); // Latent heat of vaporization
+                const amrex::Real xxls = 3.15e6 - 2370.0 * thermo(i,j,k,t_comp) + 0.3337e6; // Latent heat of sublimation
+                const amrex::Real xlf = xxls - xxlv; // Latent heat of fusion
+
+                // Heat capacity including water vapor
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
+
+                // Update temperature due to freezing
+                thermo(i,j,k,t_comp) += hydro(i,j,k,qr_comp) * xlf / cpm;
+
+                // Transfer number concentration
+                hydro(i,j,k,ng_comp) += hydro(i,j,k,nr_comp);
+
+                // Clear rain water and number
+                hydro(i,j,k,qr_comp) = 0.0;
+                hydro(i,j,k,nr_comp) = 0.0;
+            }
+        });
         //----------------------------------------------------------------------
         // Phase partitioning and saturation adjustment (existing code)
         //----------------------------------------------------------------------
