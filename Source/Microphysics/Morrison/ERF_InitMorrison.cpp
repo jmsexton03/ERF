@@ -29,7 +29,85 @@ Morrison::Init(const MultiFab& cons_in,
 
     // Store timestep
     dt = dt_advance;
+    m_geom = geom;
+    m_gtoe = grids;
 
+    m_z_phys_nd = z_phys_nd.get();
+    m_detJ_cc   = detJ_cc.get();
+
+    MicVarMap.resize(m_qmoist_size);
+    MicVarMap = {MicVar_Morr::qt, MicVar_Morr::qv , MicVar_Morr::qcl, MicVar_Morr::qci,
+                 MicVar_Morr::qp, MicVar_Morr::qpr, MicVar_Morr::qps, MicVar_Morr::qpg, MicVar_Morr::rain_accum, MicVar_Morr::snow_accum, MicVar_Morr::graup_accum};
+
+    // initialize microphysics variables
+    for (auto ivar = 0; ivar < MicVar_Morr::NumVars; ++ivar) {
+        mic_fab_vars[ivar] = std::make_shared<MultiFab>(cons_in.boxArray(), cons_in.DistributionMap(),
+                                                        1, cons_in.nGrowVect());
+        mic_fab_vars[ivar]->setVal(0.);
+    }
+
+    // Set class data members
+    for ( MFIter mfi(cons_in, TileNoZ()); mfi.isValid(); ++mfi) {
+        const auto& box3d = mfi.tilebox();
+
+        const auto& lo = lbound(box3d);
+        const auto& hi = ubound(box3d);
+
+        nlev = box3d.length(2);
+        zlo  = lo.z;
+        zhi  = hi.z;
+
+        // parameters
+        accrrc.resize({zlo},  {zhi});
+        accrsi.resize({zlo},  {zhi});
+        accrsc.resize({zlo},  {zhi});
+        coefice.resize({zlo}, {zhi});
+        evaps1.resize({zlo},  {zhi});
+        evaps2.resize({zlo},  {zhi});
+        accrgi.resize({zlo},  {zhi});
+        accrgc.resize({zlo},  {zhi});
+        evapg1.resize({zlo},  {zhi});
+        evapg2.resize({zlo},  {zhi});
+        evapr1.resize({zlo},  {zhi});
+        evapr2.resize({zlo},  {zhi});
+
+        // data (input)
+        rho1d.resize({zlo}, {zhi});
+        pres1d.resize({zlo}, {zhi});
+        tabs1d.resize({zlo}, {zhi});
+        gamaz.resize({zlo}, {zhi});
+        zmid.resize({zlo}, {zhi});
+    }
+    // Initialize physical constants
+    initialize_constants();
+
+    // Set microphysics control parameters
+    m_activate_type = 2;  // Lognormal aerosol activation
+    m_inuc_type = 0;      // Mid-latitude ice nucleation (Cooper)
+    m_iliq = 0;           // Include ice processes
+    m_igraup = 0;         // Include graupel processes
+    m_ihail = 0;          // Use graupel (0) instead of hail (1)
+
+    // Allocate internal MultiFabs for microphysics variables
+    allocate_arrays(grids, geom);
+
+    // Copy input data to internal storage
+    copy_input_data(cons_in);
+
+    // Initialize thermodynamic variables
+    initialize_thermodynamics(geom);
+
+    // Initialize hydrometeor size distributions
+    initialize_size_distributions();
+
+    // Initialize height and vertical coordinate information
+    initialize_vertical_grid(z_phys_nd, detJ_cc);
+
+    // Initialize radar diagnostics if enabled
+    if (m_do_radar_ref) {
+        initialize_radar_parameters();
+        initialize_radar_reflectivity();
+    }
     // Initialize physical constants
     initialize_constants();
 
