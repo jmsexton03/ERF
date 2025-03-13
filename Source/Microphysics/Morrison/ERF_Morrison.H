@@ -34,25 +34,16 @@ namespace MicVar_Morr {
       qv,    // cloud vapor
       qcl,   // cloud water
       qci,   // cloud ice
-      qs,    // snow mixing ratio
       // precipitating vars
       qp,    // total precip
       qpr,   // precip rain
       qps,   // precip ice
       qpg,   // graupel
-      // number concentration vars
-      nc,    // cloud droplet number concentration
-      ni,    // cloud ice number concentration
-      nr,    // rain number concentration
-      ns,    // snow number concentration
-      ng,    // graupel number concentration
       // derived vars
       rain_accum,
       snow_accum,
       graup_accum,
       omega,
-      // radar reflectivity
-      dbz,   // radar reflectivity at 10cm
       NumVars
   };
 }
@@ -335,7 +326,7 @@ public:
 
 private:
     // Number of qmoist variables (qt, qv, qcl, qci, qp, qpr, qps, qpg)
-    int m_qmoist_size = 12;
+    int m_qmoist_size = 11;
 
     // Number of qstate variables
     int m_qstate_size = 6;
@@ -673,48 +664,33 @@ private:
         polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
                                   0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
       }
-
     } else {  // Water (lines ~5648-5665)
-
       if (T >= 202.0) {
-
         // Flatau et al. formula for liquid water
-
         const amrex::Real a0 = 6.11239921;
-
         const amrex::Real a1 = 0.443987641;
-
         const amrex::Real a2 = 0.142986287e-1;
-
         const amrex::Real a3 = 0.264847430e-3;
-
         const amrex::Real a4 = 0.302950461e-5;
-
         const amrex::Real a5 = 0.206739458e-7;
-
         const amrex::Real a6 = 0.640689451e-10;
-
         const amrex::Real a7 = -0.952447341e-13;
-
         const amrex::Real a8 = -0.976195544e-15;
-
+           
         polysvp = a0 + dt*(a1 + dt*(a2 + dt*(a3 + dt*(a4 + dt*(a5 + dt*(a6 + dt*(a7 + a8*dt)))))));
-
         polysvp *= 100.0;  // Convert from hPa to Pa
-
       } else {
-
         // Goff-Gratch formula for water at cold temperatures
-
         polysvp = std::pow(10.0, (-7.90298*(373.16/T-1.0) + 5.02808*std::log10(373.16/T) -
                                   1.3816e-7*(std::pow(10.0, (11.344*(1.0-T/373.16)))-1.0) +
                                   8.1328e-3*(std::pow(10.0, (-3.49149*(373.16/T-1.0)))-1.0) +
                                   std::log10(1013.246))) * 100.0;
-
       }
     }
+
     return polysvp;
   }
+  
 // Add to Morrison class private section:
 private:
     // Activation and nucleation parameters
@@ -741,16 +717,17 @@ namespace PhysProp {
     // Gas constants
     constexpr amrex::Real R_d = 287.15;       // Gas constant for dry air (J/kg/K)
     constexpr amrex::Real R_v = 461.5;        // Gas constant for water vapor (J/kg/K)
-
+    
     // Specific heats
     constexpr amrex::Real c_p = 1005.0;       // Specific heat at constant pressure for dry air (J/kg/K)
-
+    
     // Molecular weight ratios
     constexpr amrex::Real ep_2 = R_d / R_v;   // Molecular weight ratio (Rd/Rv)
-
+    
     // Gravitational acceleration
     constexpr amrex::Real g = 9.806;          // Gravitational acceleration (m/s^2)
 }
+
 /**
  * Thermodynamic constants namespace
  * Contains constants used for thermodynamic calculations
@@ -771,6 +748,4 @@ namespace ThermoProp {
     constexpr amrex::Real lfus = 3.336e5;     // Latent heat of fusion (J/kg)
     constexpr amrex::Real lsub = lcond + lfus; // Latent heat of sublimation (J/kg)
 }
-
 #endif
-
