@@ -34,6 +34,7 @@ namespace MicVar_Morr {
       qv,    // cloud vapor
       qcl,   // cloud water
       qci,   // cloud ice
+      qs,    // snow mixing ratio
       // precipitating vars
       qp,    // total precip
       qpr,   // precip rain
@@ -334,7 +335,7 @@ public:
 
 private:
     // Number of qmoist variables (qt, qv, qcl, qci, qp, qpr, qps, qpg)
-    int m_qmoist_size = 11;
+    int m_qmoist_size = 12;
 
     // Number of qstate variables
     int m_qstate_size = 6;
@@ -671,7 +672,6 @@ private:
         // Goff-Gratch formula for ice at cold temperatures
         polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
                                   0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
-
       }
 
     } else {  // Water (lines ~5648-5665)
@@ -707,19 +707,14 @@ private:
         // Goff-Gratch formula for water at cold temperatures
 
         polysvp = std::pow(10.0, (-7.90298*(373.16/T-1.0) + 5.02808*std::log10(373.16/T) -
-
                                   1.3816e-7*(std::pow(10.0, (11.344*(1.0-T/373.16)))-1.0) +
-
                                   8.1328e-3*(std::pow(10.0, (-3.49149*(373.16/T-1.0)))-1.0) +
-
                                   std::log10(1013.246))) * 100.0;
 
       }
     }
-
     return polysvp;
   }
-
 // Add to Morrison class private section:
 private:
     // Activation and nucleation parameters
@@ -756,7 +751,6 @@ namespace PhysProp {
     // Gravitational acceleration
     constexpr amrex::Real g = 9.806;          // Gravitational acceleration (m/s^2)
 }
-
 /**
  * Thermodynamic constants namespace
  * Contains constants used for thermodynamic calculations
@@ -777,4 +771,6 @@ namespace ThermoProp {
     constexpr amrex::Real lfus = 3.336e5;     // Latent heat of fusion (J/kg)
     constexpr amrex::Real lsub = lcond + lfus; // Latent heat of sublimation (J/kg)
 }
+
 #endif
+
