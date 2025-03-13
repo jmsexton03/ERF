@@ -37,8 +37,14 @@ namespace MicVar_Morr {
       // precipitating vars
       qp,    // total precip
       qpr,   // precip rain
-      qps,   // precip ice
+      qps,   // precip ice/snow
       qpg,   // graupel
+      // number concentrations
+      nc,    // cloud droplet number
+      nr,    // rain number
+      ni,    // cloud ice number
+      ns,    // snow number
+      ng,    // graupel number
       // derived vars
       rain_accum,
       snow_accum,

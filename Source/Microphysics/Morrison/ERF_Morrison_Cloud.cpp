@@ -31,42 +31,36 @@ Morrison::Cloud(const SolverChoice& sc)
     constexpr amrex::Real tol = 1.0e-4; // Convergence tolerance for saturation adjustment
 
     // Loop through grids
-    for (amrex::MFIter mfi(*m_thermo); mfi.isValid(); ++mfi) {
+    for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
         const amrex::Box& box = mfi.validbox();
         
         // Get array data
-        auto const& thermo = m_thermo->array(mfi);
-        auto const& hydro = m_hydro->array(mfi);
-        auto const& w = m_thermo->array(mfi);  // Vertical velocity
-
-        // Component indices for thermodynamic variables
-        const int t_comp = 0;   // Temperature
-        const int p_comp = 1;   // Pressure
-        const int qv_comp = 2;  // Water vapor mixing ratio
-        const int rho_comp = 3; // Density
-        
-        // Component indices for hydrometeors
-        const int qc_comp = 0;  // Cloud water
-        const int qr_comp = 1;  // Rain
-        const int qi_comp = 2;  // Cloud ice
-        const int qs_comp = 3;  // Snow
-        const int qg_comp = 4;  // Graupel
-        const int nc_comp = 5;  // Cloud droplet number
-        const int nr_comp = 6;  // Rain drop number
-        const int ni_comp = 7;  // Ice crystal number
-        const int ns_comp = 8;  // Snow number
-        const int ng_comp = 9;  // Graupel number
+        auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+        auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
+        auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+        auto const& hydro_qv = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
+        auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+        auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+        auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+        auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+        auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
+        auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
+        auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
+        auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
+        auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
+        auto const& w = mic_fab_vars[MicVar_Morr::omega]->array(mfi);
 
         // Parallel execution over the box
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Get local variables
-            const amrex::Real temp = thermo(i,j,k,t_comp);
-            const amrex::Real pres = thermo(i,j,k,p_comp);
-            const amrex::Real qv = hydro(i,j,k,qv_comp);
-            const amrex::Real rho = thermo(i,j,k,rho_comp);
-            const amrex::Real qc = hydro(i,j,k,qc_comp);
-            const amrex::Real nc = hydro(i,j,k,nc_comp);
-            const amrex::Real w_local = w(i,j,k,3);  // Vertical velocity component
+            const amrex::Real temp = thermo_tabs(i,j,k);
+            const amrex::Real pres = thermo_pres(i,j,k);
+            const amrex::Real qv = hydro_qv(i,j,k);
+            const amrex::Real rho = thermo_rho(i,j,k);
+            const amrex::Real qc = hydro_qc(i,j,k);
+            const amrex::Real nc = hydro_nc(i,j,k);
+            const amrex::Real w_local = w(i,j,k);
 
             // Only activate if temperature is above freezing
             if (temp <= 273.15) return;
@@ -138,7 +132,7 @@ Morrison::Cloud(const SolverChoice& sc)
             amrex::Real pccn = (nact - nc) / dt;
 
             // Update cloud droplet number concentration
-            hydro(i,j,k,nc_comp) += pccn * dt;
+            hydro_nc(i,j,k) += pccn * dt;
         });
 
         //----------------------------------------------------------------------
@@ -146,27 +140,27 @@ Morrison::Cloud(const SolverChoice& sc)
         //----------------------------------------------------------------------
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Homogeneous freezing of cloud water (all liquid freezes below threshold)
-            if (thermo(i,j,k,t_comp) <= t_homog_freeze && hydro(i,j,k,qc_comp) >= m_qsmall) {
+            if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qc(i,j,k) >= m_qsmall) {
                 // Convert all cloud water to cloud ice
-                hydro(i,j,k,qi_comp) += hydro(i,j,k,qc_comp);
+                hydro_qi(i,j,k) += hydro_qc(i,j,k);
                 
                 // Apply latent heating
-                const amrex::Real xxlv = 3.1484e6 - 2370.0 * thermo(i,j,k,t_comp); // Latent heat of vaporization
-                const amrex::Real xxls = 3.15e6 - 2370.0 * thermo(i,j,k,t_comp) + 0.3337e6; // Latent heat of sublimation
+                const amrex::Real xxlv = 3.1484e6 - 2370.0 * thermo_tabs(i,j,k); // Latent heat of vaporization
+                const amrex::Real xxls = 3.15e6 - 2370.0 * thermo_tabs(i,j,k) + 0.3337e6; // Latent heat of sublimation
                 const amrex::Real xlf = xxls - xxlv; // Latent heat of fusion
                 
                 // Heat capacity including water vapor
-                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
                 
                 // Update temperature due to freezing
-                thermo(i,j,k,t_comp) += hydro(i,j,k,qc_comp) * xlf / cpm;
+                thermo_tabs(i,j,k) += hydro_qc(i,j,k) * xlf / cpm;
                 
                 // Transfer number concentration
-                hydro(i,j,k,ni_comp) += hydro(i,j,k,nc_comp);
+                hydro_ni(i,j,k) += hydro_nc(i,j,k);
                 
                 // Clear cloud water and number
-                hydro(i,j,k,qc_comp) = 0.0;
-                hydro(i,j,k,nc_comp) = 0.0;
+                hydro_qc(i,j,k) = 0.0;
+                hydro_nc(i,j,k) = 0.0;
             }
         });
         //----------------------------------------------------------------------
@@ -174,27 +168,27 @@ Morrison::Cloud(const SolverChoice& sc)
         //----------------------------------------------------------------------
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Homogeneous freezing of rain (all rain freezes below threshold)
-            if (thermo(i,j,k,t_comp) <= t_homog_freeze && hydro(i,j,k,qr_comp) >= m_qsmall) {
+            if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qr(i,j,k) >= m_qsmall) {
                 // Convert all rain water to graupel
-                hydro(i,j,k,qg_comp) += hydro(i,j,k,qr_comp);
+                hydro_qg(i,j,k) += hydro_qr(i,j,k);
 
                 // Apply latent heating
-                const amrex::Real xxlv = 3.1484e6 - 2370.0 * thermo(i,j,k,t_comp); // Latent heat of vaporization
-                const amrex::Real xxls = 3.15e6 - 2370.0 * thermo(i,j,k,t_comp) + 0.3337e6; // Latent heat of sublimation
+                const amrex::Real xxlv = 3.1484e6 - 2370.0 * thermo_tabs(i,j,k); // Latent heat of vaporization
+                const amrex::Real xxls = 3.15e6 - 2370.0 * thermo_tabs(i,j,k) + 0.3337e6; // Latent heat of sublimation
                 const amrex::Real xlf = xxls - xxlv; // Latent heat of fusion
 
                 // Heat capacity including water vapor
-                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
 
                 // Update temperature due to freezing
-                thermo(i,j,k,t_comp) += hydro(i,j,k,qr_comp) * xlf / cpm;
+                thermo_tabs(i,j,k) += hydro_qr(i,j,k) * xlf / cpm;
 
                 // Transfer number concentration
-                hydro(i,j,k,ng_comp) += hydro(i,j,k,nr_comp);
+                hydro_ng(i,j,k) += hydro_nr(i,j,k);
 
                 // Clear rain water and number
-                hydro(i,j,k,qr_comp) = 0.0;
-                hydro(i,j,k,nr_comp) = 0.0;
+                hydro_qr(i,j,k) = 0.0;
+                hydro_nr(i,j,k) = 0.0;
             }
         });
         //----------------------------------------------------------------------
@@ -202,30 +196,30 @@ Morrison::Cloud(const SolverChoice& sc)
         //----------------------------------------------------------------------
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Check if there is any condensate to adjust
-            if (hydro(i,j,k,qc_comp) < m_qsmall && hydro(i,j,k,qi_comp) < m_qsmall && 
-                hydro(i,j,k,qv_comp) < m_qsmall) {
+            if (hydro_qc(i,j,k) < m_qsmall && hydro_qi(i,j,k) < m_qsmall && 
+                hydro_qv(i,j,k) < m_qsmall) {
                 return; // Skip if no water to adjust
             }
             
             // Starting temperature
-            amrex::Real T = thermo(i,j,k,t_comp);
+            amrex::Real T = thermo_tabs(i,j,k);
             
             // Calculate the saturation values at current temperature
-            amrex::Real evs = std::min(0.99*thermo(i,j,k,p_comp), 
+            amrex::Real evs = std::min(0.99*thermo_pres(i,j,k), 
                                      calc_saturation_vapor_pressure(T, 0)); // Water saturation
-            amrex::Real eis = std::min(0.99*thermo(i,j,k,p_comp), 
+            amrex::Real eis = std::min(0.99*thermo_pres(i,j,k), 
                                      calc_saturation_vapor_pressure(T, 1)); // Ice saturation
             
             // Ensure ice saturation doesn't exceed water saturation near freezing
             eis = std::min(eis, evs);
             
             // Calculate saturation mixing ratios
-            amrex::Real qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
-            amrex::Real qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+            amrex::Real qvs = m_ep_2 * evs / (thermo_pres(i,j,k) - evs);
+            amrex::Real qvi = m_ep_2 * eis / (thermo_pres(i,j,k) - eis);
             
             // Calculate saturation ratios
-            amrex::Real qvqvs = hydro(i,j,k,qv_comp) / qvs;
-            amrex::Real qvqvsi = hydro(i,j,k,qv_comp) / qvi;
+            amrex::Real qvqvs = hydro_qv(i,j,k) / qvs;
+            amrex::Real qvqvsi = hydro_qv(i,j,k) / qvi;
             
             //--------------------------------------------------------------
             // Newton iteration for saturation adjustment (similar to existing code)
@@ -236,9 +230,9 @@ Morrison::Cloud(const SolverChoice& sc)
             amrex::Real dtabs = 1.0;
             
             // Current water vapor and cloud water/ice mixing ratios
-            amrex::Real qv_cur = hydro(i,j,k,qv_comp);
-            amrex::Real qc_cur = hydro(i,j,k,qc_comp);
-            amrex::Real qi_cur = hydro(i,j,k,qi_comp);
+            amrex::Real qv_cur = hydro_qv(i,j,k);
+            amrex::Real qc_cur = hydro_qc(i,j,k);
+            amrex::Real qi_cur = hydro_qi(i,j,k);
             
             // Iterate until convergence or max iterations
             while (std::abs(dtabs) > tol && niter < 20) {
@@ -262,13 +256,13 @@ Morrison::Cloud(const SolverChoice& sc)
                 }
                 
                 // Recalculate saturation values at current temperature
-                evs = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(T, 0));
-                eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(T, 1));
+                evs = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(T, 0));
+                eis = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(T, 1));
                 if (eis > evs) eis = evs;
                 
                 // Saturation mixing ratios
-                qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
-                qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+                qvs = m_ep_2 * evs / (thermo_pres(i,j,k) - evs);
+                qvi = m_ep_2 * eis / (thermo_pres(i,j,k) - eis);
                 
                 // Calculate derivatives of saturation mixing ratios with respect to temperature
                 const amrex::Real dum = m_Rv * T * T;
@@ -285,7 +279,7 @@ Morrison::Cloud(const SolverChoice& sc)
                 const amrex::Real dlsterms = domn * m_fac_cond - domn * m_fac_sub;
                 
                 // Newton iteration function and derivative
-                const amrex::Real f = -T + thermo(i,j,k,t_comp) + lsterms * (qv_cur - qsat);
+                const amrex::Real f = -T + thermo_tabs(i,j,k) + lsterms * (qv_cur - qsat);
                 const amrex::Real df = -1.0 + dlsterms * (qv_cur - qsat) - lsterms * dqsat;
                 
                 // Update temperature
@@ -296,12 +290,12 @@ Morrison::Cloud(const SolverChoice& sc)
             }
             
             // Update saturation values at final temperature
-            evs = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(T, 0));
-            eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(T, 1));
+            evs = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(T, 0));
+            eis = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(T, 1));
             if (eis > evs) eis = evs;
             
-            qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
-            qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+            qvs = m_ep_2 * evs / (thermo_pres(i,j,k) - evs);
+            qvi = m_ep_2 * eis / (thermo_pres(i,j,k) - eis);
             
             // Phase partitioning at final temperature
             amrex::Real omn;
@@ -323,16 +317,16 @@ Morrison::Cloud(const SolverChoice& sc)
             const amrex::Real qsat = omn * qvs + (1.0 - omn) * qvi;
             
             // Calculate excess or deficit of vapor
-            const amrex::Real delta_qv = hydro(i,j,k,qv_comp) - qsat;
+            const amrex::Real delta_qv = hydro_qv(i,j,k) - qsat;
             
             // Partition excess/deficit between liquid and ice based on temperature
-            const amrex::Real delta_qc = std::max(-hydro(i,j,k,qc_comp), delta_qv * omn);
-            const amrex::Real delta_qi = std::max(-hydro(i,j,k,qi_comp), delta_qv * (1.0 - omn));
+            const amrex::Real delta_qc = std::max(-hydro_qc(i,j,k), delta_qv * omn);
+            const amrex::Real delta_qi = std::max(-hydro_qi(i,j,k), delta_qv * (1.0 - omn));
             
             // Update mixing ratios
-            hydro(i,j,k,qv_comp) = qsat;
-            hydro(i,j,k,qc_comp) += delta_qc;
-            hydro(i,j,k,qi_comp) += delta_qi;
+            hydro_qv(i,j,k) = qsat;
+            hydro_qc(i,j,k) += delta_qc;
+            hydro_qi(i,j,k) += delta_qi;
             
             // Update total condensate and total water
             // (assuming these are tracked in separate variables)
@@ -340,15 +334,15 @@ Morrison::Cloud(const SolverChoice& sc)
             // hydro(i,j,k,qt_comp) = hydro(i,j,k,qv_comp) + hydro(i,j,k,qn_comp);
             
             // Update temperature
-            thermo(i,j,k,t_comp) = T;
+            thermo_tabs(i,j,k) = T;
             
             // Update potential temperature
-            const amrex::Real exner = std::pow(thermo(i,j,k,p_comp)/100000.0, m_rdOcp);
-            thermo(i,j,k,t_comp) = T / exner;
+            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
+            thermo_tabs(i,j,k) = T / exner;
             
             // Apply minimum thresholds
-            if (hydro(i,j,k,qc_comp) < m_qsmall) hydro(i,j,k,qc_comp) = 0.0;
-            if (hydro(i,j,k,qi_comp) < m_qsmall) hydro(i,j,k,qi_comp) = 0.0;
+            if (hydro_qc(i,j,k) < m_qsmall) hydro_qc(i,j,k) = 0.0;
+            if (hydro_qi(i,j,k) < m_qsmall) hydro_qi(i,j,k) = 0.0;
         });
 
 
@@ -357,30 +351,30 @@ Morrison::Cloud(const SolverChoice& sc)
         //----------------------------------------------------------------------
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Only proceed if below 0°C but above homogeneous freezing temperature
-            const amrex::Real temp = thermo(i,j,k,t_comp);
-            if (temp < 269.15 && temp > t_homog_freeze && hydro(i,j,k,qc_comp) >= m_qsmall) {
+            const amrex::Real temp = thermo_tabs(i,j,k);
+            if (temp < 269.15 && temp > t_homog_freeze && hydro_qc(i,j,k) >= m_qsmall) {
                 // Calculate number of contact nuclei per m^3 (Meyers et al. 1992)
                 const amrex::Real n_contact = std::exp(-2.80 + 0.262 * (273.15 - temp)) * 1000.0;
                 
                 // Mean free path
-                const amrex::Real dum = 7.37 * temp / (288.0 * 10.0 * thermo(i,j,k,p_comp)) / 100.0;
+                const amrex::Real dum = 7.37 * temp / (288.0 * 10.0 * thermo_pres(i,j,k)) / 100.0;
                 
                 // Effective diffusivity of contact nuclei (Brownian diffusion)
                 const amrex::Real dap = m_cons37 * temp * (1.0 + dum / m_rin) / m_mu;
                 
                 // Get cloud droplet distribution parameters
-                const amrex::Real rho = thermo(i,j,k,rho_comp);
-                const amrex::Real dum1 = thermo(i,j,k,p_comp) / (287.15 * temp);
-                amrex::Real pgam = 0.0005714 * (hydro(i,j,k,nc_comp) * rho / 1.0e6 * dum1) + 0.2714;
+                const amrex::Real rho = thermo_rho(i,j,k);
+                const amrex::Real dum1 = thermo_pres(i,j,k) / (287.15 * temp);
+                amrex::Real pgam = 0.0005714 * (hydro_nc(i,j,k) * rho / 1.0e6 * dum1) + 0.2714;
                 pgam = 1.0 / (pgam * pgam) - 1.0;
                 pgam = amrex::max(pgam, 2.0);
                 pgam = amrex::min(pgam, 10.0);
                 
                 // Calculate distribution parameters
-                const amrex::Real lamc = std::pow(m_cons26 * hydro(i,j,k,nc_comp) * gamma_function(pgam + 4.0) /
-                                         (hydro(i,j,k,qc_comp) * gamma_function(pgam + 1.0)), 1.0/3.0);
+                const amrex::Real lamc = std::pow(m_cons26 * hydro_nc(i,j,k) * gamma_function(pgam + 4.0) /
+                                         (hydro_qc(i,j,k) * gamma_function(pgam + 1.0)), 1.0/3.0);
                 
-                const amrex::Real cdist = hydro(i,j,k,nc_comp) / gamma_function(pgam + 1.0);
+                const amrex::Real cdist = hydro_nc(i,j,k) / gamma_function(pgam + 1.0);
                 
                 // Contact freezing rate
                 const amrex::Real mnuccc = m_cons38 * dap * n_contact * 
@@ -408,28 +402,28 @@ Morrison::Cloud(const SolverChoice& sc)
                 const amrex::Real nnuc_total = nnuccc + nnuccc_imm;
                 
                 // Calculate maximum possible freezing based on available droplets
-                const amrex::Real max_freeze_qc = hydro(i,j,k,qc_comp) / dt;
-                const amrex::Real max_freeze_nc = hydro(i,j,k,nc_comp) / dt;
+                const amrex::Real max_freeze_qc = hydro_qc(i,j,k) / dt;
+                const amrex::Real max_freeze_nc = hydro_nc(i,j,k) / dt;
                 
                 // Apply freezing with limits
                 const amrex::Real mnuc_limited = amrex::min(mnuc_total, max_freeze_qc);
                 const amrex::Real nnuc_limited = amrex::min(nnuc_total, max_freeze_nc);
                 
                 // Transfer to ice
-                hydro(i,j,k,qi_comp) += mnuc_limited * dt;
-                hydro(i,j,k,ni_comp) += nnuc_limited * dt;
+                hydro_qi(i,j,k) += mnuc_limited * dt;
+                hydro_ni(i,j,k) += nnuc_limited * dt;
                 
                 // Remove from cloud water
-                hydro(i,j,k,qc_comp) -= mnuc_limited * dt;
-                hydro(i,j,k,nc_comp) -= nnuc_limited * dt;
+                hydro_qc(i,j,k) -= mnuc_limited * dt;
+                hydro_nc(i,j,k) -= nnuc_limited * dt;
                 
                 // Apply latent heating
                 const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;
                 const amrex::Real xxls = 3.15e6 - 2370.0 * temp + 0.3337e6;
                 const amrex::Real xlf = xxls - xxlv;
-                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
                 
-                thermo(i,j,k,t_comp) += mnuc_limited * xlf / cpm * dt;
+                thermo_tabs(i,j,k) += mnuc_limited * xlf / cpm * dt;
             }
         });
 
@@ -439,14 +433,14 @@ Morrison::Cloud(const SolverChoice& sc)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k)
         {
             // Get local variables
-            const amrex::Real temp = thermo(i,j,k,t_comp);
-            const amrex::Real rho = thermo(i,j,k,rho_comp);
-            const amrex::Real qi = hydro(i,j,k,qi_comp);
-            const amrex::Real qs = hydro(i,j,k,qs_comp);
-            const amrex::Real qg = hydro(i,j,k,qg_comp);
-            const amrex::Real ni = hydro(i,j,k,ni_comp);
-            const amrex::Real ns = hydro(i,j,k,ns_comp);
-            const amrex::Real ng = hydro(i,j,k,ng_comp);
+            const amrex::Real temp = thermo_tabs(i,j,k);
+            const amrex::Real rho = thermo_rho(i,j,k);
+            const amrex::Real qi = hydro_qi(i,j,k);
+            const amrex::Real qs = hydro_qs(i,j,k);
+            const amrex::Real qg = hydro_qg(i,j,k);
+            const amrex::Real ni = hydro_ni(i,j,k);
+            const amrex::Real ns = hydro_ns(i,j,k);
+            const amrex::Real ng = hydro_ng(i,j,k);
 
             // Initialize nucleation rates
             amrex::Real nnuccd = 0.0;
@@ -455,17 +449,17 @@ Morrison::Cloud(const SolverChoice& sc)
             // Only proceed if below freezing
             if (temp < t_freeze) {
                 // Calculate saturation vapor pressures (already done in saturation adjustment)
-                amrex::Real evs = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 0));
-                amrex::Real eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 1));
+                amrex::Real evs = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(temp, 0));
+                amrex::Real eis = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(temp, 1));
                 if (eis > evs) eis = evs;
 
                 // Calculate saturation mixing ratios
-                amrex::Real qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
-                amrex::Real qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+                amrex::Real qvs = m_ep_2 * evs / (thermo_pres(i,j,k) - evs);
+                amrex::Real qvi = m_ep_2 * eis / (thermo_pres(i,j,k) - eis);
 
                 // Calculate saturation ratios
-                amrex::Real qvqvs = hydro(i,j,k,qv_comp) / qvs;
-                amrex::Real qvqvsi = hydro(i,j,k,qv_comp) / qvi;
+                amrex::Real qvqvs = hydro_qv(i,j,k) / qvs;
+                amrex::Real qvqvsi = hydro_qv(i,j,k) / qvi;
 
                 // Ice nucleation parameterization (Cooper 1986)
                 if (m_inuc_type == 0) { // Mid-latitude (Cooper)
@@ -507,12 +501,12 @@ Morrison::Cloud(const SolverChoice& sc)
                 }
 
                 // Apply nucleation (add to cloud ice)
-                hydro(i,j,k,qi_comp) += mnuccd * dt;
-                hydro(i,j,k,ni_comp) += nnuccd * dt;
+                hydro_qi(i,j,k) += mnuccd * dt;
+                hydro_ni(i,j,k) += nnuccd * dt;
 
                 // Apply latent heating
-                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro(i,j,k,qv_comp));
-                thermo(i,j,k,t_comp) += mnuccd * m_fac_sub * dt / cpm;
+                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
+                thermo_tabs(i,j,k) += mnuccd * m_fac_sub * dt / cpm;
             }
         });
 
@@ -521,20 +515,20 @@ Morrison::Cloud(const SolverChoice& sc)
         //----------------------------------------------------------------------
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Only check if there is appreciable cloud ice
-            if (hydro(i,j,k,qi_comp) >= m_qsmall && thermo(i,j,k,t_comp) < t_freeze) {
+            if (hydro_qi(i,j,k) >= m_qsmall && thermo_tabs(i,j,k) < t_freeze) {
                 // Calculate size distribution parameter
-                const amrex::Real lami = std::pow(m_cons12 * hydro(i,j,k,ni_comp) / 
-                                        hydro(i,j,k,qi_comp), 1.0/m_di);
+                const amrex::Real lami = std::pow(m_cons12 * hydro_ni(i,j,k) / 
+                                        hydro_qi(i,j,k), 1.0/m_di);
                 
                 // Check if mean size is valid
                 if (lami >= 1.0e-10) {
                     // Check if mean size exceeds threshold (2*DCS)
                     if (1.0/lami >= 2.0*m_dcs) {
                         // Transfer all cloud ice to snow
-                        hydro(i,j,k,qs_comp) += hydro(i,j,k,qi_comp);
-                        hydro(i,j,k,ns_comp) += hydro(i,j,k,ni_comp);
-                        hydro(i,j,k,qi_comp) = 0.0;
-                        hydro(i,j,k,ni_comp) = 0.0;
+                        hydro_qs(i,j,k) += hydro_qi(i,j,k);
+                        hydro_ns(i,j,k) += hydro_ni(i,j,k);
+                        hydro_qi(i,j,k) = 0.0;
+                        hydro_ni(i,j,k) = 0.0;
                     }
                 }
             }

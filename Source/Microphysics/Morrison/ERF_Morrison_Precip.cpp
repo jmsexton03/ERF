@@ -113,12 +113,24 @@ Morrison::Precip(const SolverChoice& sc)
     const amrex::Real mmult = 4.0/3.0 * M_PI * m_rhoi * std::pow(5.0e-6, 3);
 
     // Loop through grids
-    for (amrex::MFIter mfi(*m_hydro); mfi.isValid(); ++mfi) {
+    for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
         const amrex::Box& box = mfi.validbox();
         
         // Get array data
-        auto const& thermo = m_thermo->array(mfi);
-        auto const& hydro = m_hydro->array(mfi);
+        auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+        auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
+        auto const& hydro_qv = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
+        auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+        auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+        auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+        auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+        auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+        auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
+        auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
+        auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
+        auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
+        auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
         auto const& tend = m_tend->array(mfi);
         
         // Component indices for thermodynamic variables
@@ -151,20 +163,20 @@ Morrison::Precip(const SolverChoice& sc)
         amrex::Real pccn; // CCN activation rate
 
             // Get local variables
-            const amrex::Real temp = thermo(i,j,k,t_comp);
-            const amrex::Real pres = thermo(i,j,k,p_comp);
-            const amrex::Real qv = hydro(i,j,k,qv_comp);
-            const amrex::Real rho = thermo(i,j,k,rho_comp);
-            const amrex::Real qc = hydro(i,j,k,qc_comp);
-            const amrex::Real qi = hydro(i,j,k,qi_comp);
-            const amrex::Real qr = hydro(i,j,k,qr_comp);
-            const amrex::Real qs = hydro(i,j,k,qs_comp);
-            const amrex::Real qg = hydro(i,j,k,qg_comp);
-            const amrex::Real nc = hydro(i,j,k,nc_comp);
-            const amrex::Real ni = hydro(i,j,k,ni_comp);
-            const amrex::Real nr = hydro(i,j,k,nr_comp);
-            const amrex::Real ns = hydro(i,j,k,ns_comp);
-            const amrex::Real ng = hydro(i,j,k,ng_comp);
+            const amrex::Real temp = thermo_tabs(i,j,k);
+            const amrex::Real pres = thermo_pres(i,j,k);
+            const amrex::Real qv = hydro_qv(i,j,k);
+            const amrex::Real rho = thermo_rho(i,j,k);
+            const amrex::Real qc = hydro_qc(i,j,k);
+            const amrex::Real qi = hydro_qi(i,j,k);
+            const amrex::Real qr = hydro_qr(i,j,k);
+            const amrex::Real qs = hydro_qs(i,j,k);
+            const amrex::Real qg = hydro_qg(i,j,k);
+            const amrex::Real nc = hydro_nc(i,j,k);
+            const amrex::Real ni = hydro_ni(i,j,k);
+            const amrex::Real nr = hydro_nr(i,j,k);
+            const amrex::Real ns = hydro_ns(i,j,k);
+            const amrex::Real ng = hydro_ng(i,j,k);
             
             // Initialize process rates to zero
             prc = 0.0; nprc = 0.0; nprc1 = 0.0; pra = 0.0; npra = 0.0; nragg = 0.0;
@@ -229,7 +241,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Cloud distribution
             if (qc >= m_qsmall) {
                 // Cloud droplet gamma distribution shape parameter
-                const amrex::Real dum = pres / (287.15 * temp);
+                const amrex::Real dum = thermo_pres(i,j,k) / (287.15 * temp);
                 pgam = 0.0005714 * (nc * rho / 1.0e6 * dum) + 0.2714;
                 pgam = 1.0 / (pgam * pgam) - 1.0;
                 pgam = amrex::max(pgam, 2.0);
@@ -254,7 +266,7 @@ Morrison::Precip(const SolverChoice& sc)
                 if (qc < 0.05e-3) {
                     // Calculate effective vertical velocity (grid-scale + sub-grid)
                     // Sub-grid velocity is set to 0.5 m/s following the original scheme
-                    amrex::Real w_local = thermo(i,j,k,3);  // Vertical velocity component
+                    amrex::Real w_local = thermo_rho(i,j,k);  // Vertical velocity component
                     amrex::Real w_eff = w_local;
                     if (m_isub == 0) {
                         w_eff = std::sqrt(w_local*w_local + 0.5*0.5);
@@ -520,17 +532,17 @@ Morrison::Precip(const SolverChoice& sc)
             //----------------------------------------------------------------------
             //F2352
             // Starting temperature
-            amrex::Real T = thermo(i,j,k,t_comp);
+            amrex::Real T = thermo_tabs(i,j,k);
             
             // Calculate the saturation values at current temperature
-            amrex::Real evs = std::min(0.99*thermo(i,j,k,p_comp), 
+            amrex::Real evs = std::min(0.99*thermo_pres(i,j,k), 
                                      calc_saturation_vapor_pressure(T, 0)); // Water saturation
-            amrex::Real eis = std::min(0.99*thermo(i,j,k,p_comp), calc_saturation_vapor_pressure(temp, 1));
+            amrex::Real eis = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(temp, 1));
             if (eis > evs) eis = evs;
 
             // Calculate saturation mixing ratios
-            amrex::Real qvs = m_ep_2 * evs / (thermo(i,j,k,p_comp) - evs);
-            amrex::Real qvi = m_ep_2 * eis / (thermo(i,j,k,p_comp) - eis);
+            amrex::Real qvs = m_ep_2 * evs / (thermo_pres(i,j,k) - evs);
+            amrex::Real qvi = m_ep_2 * eis / (thermo_pres(i,j,k) - eis);
             const amrex::Real dum = m_Rv * T * T;
             const amrex::Real dqsdt = (3.1484e6 - 2370.0 * T) * qvs / dum;
             if (qi >= m_qsmall && temp < t_freezing) {
