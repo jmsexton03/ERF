@@ -1,4 +1,3 @@
-// Add these includes if needed
 #include "ERF_Morrison.H"
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_MultiFabUtil.H>
@@ -51,7 +50,9 @@ Morrison::Cloud(const SolverChoice& sc)
         auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
         auto const& w = mic_fab_vars[MicVar_Morr::omega]->array(mfi);
 
-        // Parallel execution over the box
+        // This block implements cloud droplet activation (CCN activation)
+        // This is a microphysical process that doesn't directly address 
+        // cloud phase thermodynamics, but rather creates new cloud particles
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Get local variables
             const amrex::Real temp = thermo_tabs(i,j,k);
@@ -135,9 +136,9 @@ Morrison::Cloud(const SolverChoice& sc)
             hydro_nc(i,j,k) += pccn * dt;
         });
 
-        //----------------------------------------------------------------------
-        // Handle homogeneous freezing of cloud water (replace existing code if any)
-        //----------------------------------------------------------------------
+        // This block implements homogeneous freezing of cloud water
+        // It's part of the saturation adjustment process because it changes
+        // water phase partitioning based on temperature thresholds
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Homogeneous freezing of cloud water (all liquid freezes below threshold)
             if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qc(i,j,k) >= m_qsmall) {
@@ -163,9 +164,9 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_nc(i,j,k) = 0.0;
             }
         });
-        //----------------------------------------------------------------------
-        // Homogeneous freezing of rain (replace existing code if any)
-        //----------------------------------------------------------------------
+
+        // This block implements homogeneous freezing of rain
+        // Also part of phase changes in the saturation adjustment process
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Homogeneous freezing of rain (all rain freezes below threshold)
             if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qr(i,j,k) >= m_qsmall) {
@@ -191,9 +192,10 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_nr(i,j,k) = 0.0;
             }
         });
-        //----------------------------------------------------------------------
-        // Phase partitioning and saturation adjustment (existing code)
-        //----------------------------------------------------------------------
+
+        // This is the core saturation adjustment algorithm 
+        // It redistributes water between vapor, liquid, and ice phases to
+        // maintain thermodynamic equilibrium (saturation conditions)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Check if there is any condensate to adjust
             if (hydro_qc(i,j,k) < m_qsmall && hydro_qi(i,j,k) < m_qsmall && 
@@ -220,11 +222,11 @@ Morrison::Cloud(const SolverChoice& sc)
             // Calculate saturation ratios
             amrex::Real qvqvs = hydro_qv(i,j,k) / qvs;
             amrex::Real qvqvsi = hydro_qv(i,j,k) / qvi;
-            
-            //--------------------------------------------------------------
-            // Newton iteration for saturation adjustment (similar to existing code)
-            //--------------------------------------------------------------
-            
+
+            // Newton iteration for saturation adjustment
+            // This is the core algorithm that determines the final equilibrium 
+            // temperature and water phase distribution
+
             // Initialize values for Newton iteration
             int niter = 0;
             amrex::Real dtabs = 1.0;
@@ -235,6 +237,8 @@ Morrison::Cloud(const SolverChoice& sc)
             amrex::Real qi_cur = hydro_qi(i,j,k);
             
             // Iterate until convergence or max iterations
+            // This loop adjusts temperature to find equilibrium between
+            // water phases considering latent heat effects
             while (std::abs(dtabs) > tol && niter < 20) {
                 // Phase partitioning based on temperature
                 amrex::Real omn, domn;
@@ -322,8 +326,9 @@ Morrison::Cloud(const SolverChoice& sc)
             // Partition excess/deficit between liquid and ice based on temperature
             const amrex::Real delta_qc = std::max(-hydro_qc(i,j,k), delta_qv * omn);
             const amrex::Real delta_qi = std::max(-hydro_qi(i,j,k), delta_qv * (1.0 - omn));
-            
-            // Update mixing ratios
+
+            // Update mixing ratios - this is where the actual redistribution occurs
+            // between vapor, liquid, and ice to achieve saturation equilibrium
             hydro_qv(i,j,k) = qsat;
             hydro_qc(i,j,k) += delta_qc;
             hydro_qi(i,j,k) += delta_qi;
@@ -346,9 +351,8 @@ Morrison::Cloud(const SolverChoice& sc)
         });
 
 
-        //----------------------------------------------------------------------
-        // Add heterogeneous freezing of cloud droplets (new code)
-        //----------------------------------------------------------------------
+        // Heterogeneous freezing of cloud droplets complements the saturation adjustment
+        // by allowing phase transitions that occur at temperatures above homogeneous freezing
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Only proceed if below 0°C but above homogeneous freezing temperature
             const amrex::Real temp = thermo_tabs(i,j,k);
@@ -426,7 +430,10 @@ Morrison::Cloud(const SolverChoice& sc)
                 thermo_tabs(i,j,k) += mnuc_limited * xlf / cpm * dt;
             }
         });
-
+#if 0
+        // This block implements primary ice nucleation (deposition/condensation freezing)
+        // This process introduces new ice particles rather than changing phase of existing water,
+        // so it's not directly part of the thermodynamic phase equilibrium adjustment
         //----------------------------------------------------------------------
         // Primary Ice Nucleation (NNUCCD, MNUCCD) - New Implementation
         //----------------------------------------------------------------------
@@ -509,7 +516,9 @@ Morrison::Cloud(const SolverChoice& sc)
                 thermo_tabs(i,j,k) += mnuccd * m_fac_sub * dt / cpm;
             }
         });
-
+        // This block handles ice-snow categorization based on particle size
+        // It's a non-thermodynamic process that classifies ice particles
+        // rather than adjusting phases based on thermodynamic equilibrium
         //----------------------------------------------------------------------
         // Transfer ice to snow if mean size exceeds threshold (existing code)
         //----------------------------------------------------------------------
@@ -533,5 +542,6 @@ Morrison::Cloud(const SolverChoice& sc)
                 }
             }
         });
+#endif
     }
 }
