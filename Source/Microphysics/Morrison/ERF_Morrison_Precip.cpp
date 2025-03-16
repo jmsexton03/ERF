@@ -259,7 +259,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 1. CCN Activation - New process added for cloud droplet activation
+            // Q Process: PCCN
+            // N Process: 
+            // Process: CCN Activation
+            // Description: New process added for cloud droplet activation
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             if (temp > 273.15) {  // Only activate above freezing
                 // Only activate if there's little existing cloud water
@@ -330,7 +334,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // 3. Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
+            // Q Process: PRA
+            // N Process: NPRA
+            // Process: Accretion of liquid to rain
+            // Description: Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             if (qc >= 1.0e-6 && qr >= 1.0e-6) {
                 pra = 13.4 * std::pow(rho * qc, 0.18) * std::pow(qr, 0.65) * std::pow(rho, 0.65);
@@ -343,7 +351,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // 2. Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
+            // Q Process: PRC
+            // N Process: NPRC
+            // Process: Liquid autoconversion
+            // Description: Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             if (qc >= 1.0e-6) {
                 prc = 1350.0 * std::pow(qc, 2.47) * 
@@ -359,7 +371,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 3. Rain-ice collisions - new process integration example
+            // Q Process: PRACI
+            // N Process: NPACR
+            // Process: Ice autoconversion
+            // Description: Rain-ice collisions - new process integration example
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F2855
             if (temp <= 273.15 && qr >= 1.0e-8 && qi >= 1.0e-8) {
@@ -399,7 +415,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 4. Rime splintering (HM process) - new process integration example
+            // Q Process: PSACWS
+            // N Process: NSACWS
+            // Process: Collection of drops by snow
+            // Description: Accretion of cloud water by snow
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F2602
             if (temp < t_hm_max && temp > t_hm_min) {
@@ -516,7 +536,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
             
             //----------------------------------------------------------------------
-            // 4. Self-collection/breakup of rain (Verlinde and Cotton 1993, modification)
+            // Q Process: 
+            // N Process: 
+            // Process: Self-collection/breakup of rain
+            // Description: Self-collection/breakup of rain (Verlinde and Cotton 1993, modification)
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             if (qr >= m_qsmall)
             {
@@ -528,7 +552,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // 12. Autoconversion of Cloud Ice to Snow (PRCI and NPRCI)
+            // Q Process: PRCI
+            // N Process: NPRCI
+            // Process: Collection of ice to snow
+            // Description: Autoconversion of Cloud Ice to Snow
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F2352
             // Starting temperature
@@ -571,7 +599,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // Collection of cloud ice by snow (PRAI and NPRAI) - Implementation
+            // Q Process: PRAI
+            // N Process: NPRAI
+            // Process: Collection of ice to snow
+            // Description: Collection of cloud ice by snow
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F2377
             if (qi >= m_qsmall && qs >= m_qsmall) {
@@ -586,7 +618,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // 15. Conversion of Rimed Cloud Water to Graupel (PGSACW and NSCNG)
+            // Q Process: PGSACW
+            // N Process: NSCNG
+            // Process: Collection of drops by snow
+            // Description: Conversion of Rimed Cloud Water to Graupel
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F2477
             if (qs >= m_qsmall && qc >= m_qsmall) {
@@ -619,7 +655,11 @@ Morrison::Precip(const SolverChoice& sc)
             }
 
             //----------------------------------------------------------------------
-            // 5. Water conservation checks - example of using the conservation logic
+            // Q Process: 
+            // N Process: 
+            // Process: Water conservation
+            // Description: Apply all tendency terms to the hydrometeor fields
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F1938 
             // Cloud water conservation
@@ -727,7 +767,11 @@ Morrison::Precip(const SolverChoice& sc)
                 }
             }
             //----------------------------------------------------------------------
-            // 14. Accelerated Melting of Snow and Graupel due to Rain Collisions
+            // Q Process: PRE
+            // N Process: NSUBR
+            // Process: Rain evaporation
+            // Description: Accelerated Melting of Snow and Graupel due to Rain Collisions
+            // Fraction: Precip
             //----------------------------------------------------------------------
             //F3950
             // Only apply if above freezing
@@ -816,7 +860,11 @@ Morrison::Precip(const SolverChoice& sc)
             }           
 
             //----------------------------------------------------------------------
-            // 6. Apply all tendency terms to the hydrometeor fields
+            // Q Process: 
+            // N Process: 
+            // Process: Water conservation
+            // Description: Apply all tendency terms to the hydrometeor fields
+            // Fraction: Cloud
             //----------------------------------------------------------------------
             //F1296 
             // Calculate latent heat terms

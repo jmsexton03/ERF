@@ -63,7 +63,11 @@ Morrison::IceFall(const SolverChoice& sc)
             // Apply freezing only below the homogeneous freezing threshold (T < -40°C)
             const amrex::Real t_homog_freeze = 233.15;
             if (temp <= t_homog_freeze) {
-                // 1. Homogeneous freezing of cloud water to cloud ice
+                // Q Process: MNUCCC
+                // N Process: NNUCCC
+                // Process: Homogeneous freezing of drops
+                // Description: Homogeneous freezing of cloud water to cloud ice
+                // Fraction: Cloud
                 if (hydro_qc(i,j,k) >= m_qsmall) {
                     // Calculate latent heats
                     const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;  // Latent heat of vaporization
@@ -105,6 +109,11 @@ Morrison::IceFall(const SolverChoice& sc)
             
             // Check if temperature is in the H-M process range
             if (temp < t_hm_max && temp > t_hm_min) {
+                // Q Process: PSACWS
+                // N Process: NPSACWS
+                // Process: Collection of drops by snow
+                // Description: Collection of cloud water by snow
+                // Fraction: Cloud
                 // Calculate temperature-dependent multiplication factor
                 amrex::Real fmult = 0.0;
                 
