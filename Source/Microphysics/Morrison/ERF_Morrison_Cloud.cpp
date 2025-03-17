@@ -185,8 +185,33 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 qn_array(i,j,k) = 0.0;
                 qt_array(i,j,k) = qv;
 
-                tabs_array(i,j,k) -= fac_cond * delta_qc + fac_sub * delta_qi;
-                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres, rdOcp);
+//                tabs_array(i,j,k) -= fac_cond * delta_qc + fac_sub * delta_qi;
+//                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres, rdOcp);
+/*
+                // Calculate the deficit in water vapor
+                Real delta_qv = qv - qsat; // Negative value indicates deficit
+
+                // Determine phase partitioning based on temperature
+                Real omn = (T >= tbgmax) ? 1.0 : ((T <= tbgmin) ? 0.0 : (an * T - bn));
+
+                // Partition deficit between liquid and ice
+                // Ensure delta_qc and delta_qi are positive when there's a deficit
+                Real delta_qc = std::min(qc, -delta_qv * omn);    // Amount of liquid water to condense
+                Real delta_qi = std::min(qi, -delta_qv * (1.0 - omn)); // Amount of ice to form
+
+                // Update mixing ratios
+                qv_array(i,j,k) = qsat; // Set vapor to saturation
+                qcl_array(i,j,k) += delta_qc; // Add condensed liquid water
+                qci_array(i,j,k) += delta_qi; // Add formed ice
+*/
+                // Calculate heat capacity including water vapor
+                Real cpm = m_cp * (1.0 + 0.887 * qv_array(i,j,k));
+
+                // Apply latent heating (positive when condensing/cooling)
+                tabs_array(i,j,k) += (delta_qc * m_fac_cond + delta_qi * m_fac_sub) / cpm;
+
+                // Update potential temperature
+                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0 * pres, rdOcp);
 
                 evs = calc_saturation_vapor_pressure(tabs_array(i,j,k), 0);
                 eis = calc_saturation_vapor_pressure(tabs_array(i,j,k), 1);
