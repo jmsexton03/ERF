@@ -171,9 +171,12 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_nc(i,j,k) = 0.0;
             }
 
-            // Update theta after temperature change
+            // Update theta after temperature change, preserving consistency
             const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
             theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
+            
+            // Ensure theta remains positive
+            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 
         // This block implements homogeneous freezing of rain
@@ -207,9 +210,12 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_nr(i,j,k) = 0.0;
             }
 
-            // Update theta after temperature change
+            // Update theta after temperature change, preserving consistency
             const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
             theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
+            
+            // Ensure theta remains positive
+            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 
         // This is the core saturation adjustment algorithm 
@@ -374,21 +380,34 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_qv(i,j,k) += (initial_qt - final_qt);
             }
             
-            // Verify conservation of energy after phase changes
+            // Verify conservation of energy after phase changes - more careful approach
             const amrex::Real xxlv_new = 3.1484e6 - 2370.0 * T; // Updated latent heat of vaporization
             const amrex::Real xxls_new = 3.15e6 - 2370.0 * T + 0.3337e6; // Updated latent heat of sublimation
             const amrex::Real cpm_new = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-            const amrex::Real final_energy = cpm_new * T + hydro_qv(i,j,k) * xxlv_new + hydro_qi(i,j,k) * xxls_new;
             
-            // If energy not conserved, adjust temperature to conserve energy
+            // Calculate final energy state (sensible + latent)
+            const amrex::Real final_sensible = cpm_new * T;
+            const amrex::Real final_latent = hydro_qv(i,j,k) * xxlv_new + hydro_qi(i,j,k) * xxls_new;
+            const amrex::Real final_energy = final_sensible + final_latent;
+            
+            // If energy not conserved beyond tolerance, adjust temperature to conserve energy
             if (std::abs(final_energy - initial_energy) > 1.0e-6) {
+                // Limit the temperature adjustment to avoid negative temperatures
                 const amrex::Real delta_T = (initial_energy - final_energy) / cpm_new;
-                T += delta_T;
-                thermo_tabs(i,j,k) = T;
+                const amrex::Real T_new = amrex::max(T + delta_T, 100.0); // Ensure T stays above 100K
+                
+                // Only apply adjustment if it doesn't cause extreme changes
+                if (std::abs(T_new - T) < 10.0) {
+                    T = T_new;
+                    thermo_tabs(i,j,k) = T;
+                }
             }
 
             // Update theta consistently with temperature
             theta_arr(i,j,k) = T / exner;
+            
+            // Ensure theta remains positive
+            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
 
             // Apply minimum thresholds
             if (hydro_qc(i,j,k) < m_qsmall) hydro_qc(i,j,k) = 0.0;
@@ -485,6 +504,9 @@ Morrison::Cloud(const SolverChoice& sc)
             // Update theta after temperature change
             const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
             theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
+            
+            // Ensure theta remains positive
+            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 #if 0
         // This block implements primary ice nucleation (deposition/condensation freezing)
