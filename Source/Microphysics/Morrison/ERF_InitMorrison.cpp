@@ -1,3 +1,4 @@
+
 #include <AMReX_GpuContainers.H>
 #include "ERF_Morrison.H"
 #include "ERF_IndexDefines.H"
@@ -79,6 +80,9 @@ Morrison::Init(const MultiFab& cons_in,
         zmid.resize({zlo}, {zhi});
     }
     // Initialize physical constants
+    // Set microphysics control parameters
+    m_inum = 1;           // Use constant droplet number concentration
+    m_ndcnst = 250.0;     // Droplet number concentration (cm^-3)
     initialize_constants();
 
     // Set microphysics control parameters
@@ -87,6 +91,14 @@ Morrison::Init(const MultiFab& cons_in,
     m_iliq = 0;           // Include ice processes
     m_igraup = 0;         // Include graupel processes
     m_ihail = 0;          // Use graupel (0) instead of hail (1)
+    m_isub = 0;           // Sub-grid vertical velocity option
+    m_do_radar_ref = false; // Disable radar reflectivity by default
+
+    // Ensure consistency between m_iact and m_activate_type
+    m_iact = m_activate_type;
+
+    // Initialize water vapor gas constant for activation calculations
+    m_r_v = m_Rv;
 
     // Allocate internal MultiFabs for microphysics variables
     allocate_arrays(grids, geom);
@@ -108,6 +120,19 @@ Morrison::Init(const MultiFab& cons_in,
         initialize_radar_parameters();
         initialize_radar_reflectivity();
     }
+    // Compute coefficients for microphysical processes
+    Compute_Coefficients();
+
+    // Initialize viscosity parameter for contact nucleation
+    m_mu = 1.496E-6 * std::pow(293.15, 1.5) / (293.15 + 120.0);
+
+    // Initialize process rates to zero
+    npsacwg = 0.0;
+    prci = 0.0;
+    prai = 0.0;
+    psacr = 0.0;
+    nprci = 0.0;
+    nprai = 0.0;
 }
 
 /**
@@ -375,7 +400,54 @@ Morrison::allocate_arrays(const BoxArray& grids, const Geometry& geom)
     // Initialize all data to zero
     m_tend->setVal(0.0);
 
-    // Allocate auxiliary arrays for microphysics calculations
+    // Initialize number concentration fields if they don't exist
+    if (!mic_fab_vars[MicVar_Morr::nc]) {
+        mic_fab_vars[MicVar_Morr::nc] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::nc]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::nr]) {
+        mic_fab_vars[MicVar_Morr::nr] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::nr]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::ni]) {
+        mic_fab_vars[MicVar_Morr::ni] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::ni]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::ns]) {
+        mic_fab_vars[MicVar_Morr::ns] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::ns]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::ng]) {
+        mic_fab_vars[MicVar_Morr::ng] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::ng]->setVal(0.0);
+    }
+
+    // Initialize accumulation variables
+    if (!mic_fab_vars[MicVar_Morr::rain_accum]) {
+        mic_fab_vars[MicVar_Morr::rain_accum] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::rain_accum]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::snow_accum]) {
+        mic_fab_vars[MicVar_Morr::snow_accum] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::snow_accum]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::graup_accum]) {
+        mic_fab_vars[MicVar_Morr::graup_accum] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::graup_accum]->setVal(0.0);
+    }
+
+    if (!mic_fab_vars[MicVar_Morr::omega]) {
+        mic_fab_vars[MicVar_Morr::omega] = std::make_shared<MultiFab>(grids, dm, 1, n_ghost_micro);
+        mic_fab_vars[MicVar_Morr::omega]->setVal(0.0);
+    }
+
+    // Allocate radar reflectivity MultiFab if needed
     if (m_do_radar_ref) {
         m_radar.reset(new MultiFab(grids, dm, 1, 0)); // No ghost cells needed for radar
         m_radar->setVal(-35.0); // Initialize with minimum reflectivity value
@@ -398,47 +470,98 @@ Morrison::initialize_thermodynamics(const Geometry& geom)
     // Additional thermodynamic calculations can be done here if needed
 }
 
-void
-Morrison::initialize_size_distributions()
-{
-    // Component indices for hydrometeors
-    // Initialize size distributions for hydrometeors
-    #ifdef AMREX_USE_OMP
-    #pragma omp parallel if (Gpu::notInLaunchRegion())
-    #endif
-    for (MFIter mfi(*mic_fab_vars[MicVar_Morr::qcl]); mfi.isValid(); ++mfi) {
-        const Box& box = mfi.validbox();
+   void
+   Morrison::initialize_size_distributions()
+   {
+       // Initialize size distributions for hydrometeors
+       #ifdef AMREX_USE_OMP
+       #pragma omp parallel if (Gpu::notInLaunchRegion())
+       #endif
+       for (MFIter mfi(*mic_fab_vars[MicVar_Morr::qcl]); mfi.isValid(); ++mfi) {
+           const Box& box = mfi.validbox();
 
-        // Get array accessors
-        auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
-        auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
-        auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
-        auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
-        auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
-        auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
-        auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+           // Get array accessors
+           auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+           auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+           auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+           auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+           auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
 
-        // Initialize size distribution parameters
-        amrex::ParallelFor(box,
-            [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-                // Get density for this cell
-                Real rho = thermo_rho(i,j,k);
+           auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
+           auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
+           auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
+           auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
+           auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
 
-                // Set constant droplet number concentration if specified
-                if (m_inum == 1) {
-                    hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
-                }
+           auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+           auto const& thermo_temp = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
 
-                // Make sure number concentrations are positive
-                hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
-                hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
-                hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
-                hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
-                hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
-            }
-        );
-    }
-}
+           // Initialize size distribution parameters
+           amrex::ParallelFor(box,
+               [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+                   // Get density for this cell
+                   Real rho = thermo_rho(i,j,k);
+                   Real temp = thermo_temp(i,j,k);
+
+                   // Set constant droplet number concentration if specified
+                   if (m_inum == 1) {
+                       hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
+                   }
+
+                   // Initialize hydrometeor number concentrations based on mixing ratios
+                   // These are approximate initializations that will be refined during the first timestep
+
+                   // Cloud droplets - if not using constant number
+                   if (m_inum == 0 && hydro_qc(i,j,k) > m_qsmall) {
+                       // Assume mean diameter of 10 microns for initialization
+                       Real mean_mass = m_pi/6.0 * m_rhow * std::pow(10.0e-6, 3);
+                       hydro_nc(i,j,k) = hydro_qc(i,j,k) / mean_mass;
+                   }
+
+                   // Cloud ice
+                   if (hydro_qi(i,j,k) > m_qsmall) {
+                       // Use initial mass for ice crystals
+                       hydro_ni(i,j,k) = hydro_qi(i,j,k) / m_mi0;
+                   }
+
+                   // Rain
+                   if (hydro_qr(i,j,k) > m_qsmall) {
+                       // Use Marshall-Palmer distribution with N0 = 8e6 m^-4
+                       Real n0r = 8.0e6; // m^-4
+                       Real lambda_r = std::pow(m_pi * m_rhow * n0r / (rho * hydro_qr(i,j,k)), 0.25);
+                       lambda_r = std::min(std::max(lambda_r, m_lamminr), m_lammaxr);
+                       hydro_nr(i,j,k) = n0r / lambda_r;
+                   }
+
+                   // Snow
+                   if (hydro_qs(i,j,k) > m_qsmall) {
+                       // Use exponential distribution with N0 = 3e6 m^-4
+                       Real n0s = 3.0e6; // m^-4
+                       Real lambda_s = std::pow(m_pi * m_rhosn * n0s / (rho * hydro_qs(i,j,k) * m_cons1), 0.25);
+                       lambda_s = std::min(std::max(lambda_s, m_lammins), m_lammaxs);
+                       hydro_ns(i,j,k) = n0s / lambda_s;
+                   }
+
+                   // Graupel
+                   if (hydro_qg(i,j,k) > m_qsmall) {
+                       // Use exponential distribution with N0 = 4e6 m^-4
+                       Real n0g = 4.0e6; // m^-4
+                       Real lambda_g = std::pow(m_pi * m_rhog * n0g / (rho * hydro_qg(i,j,k) * m_cons2), 0.25);
+                       lambda_g = std::min(std::max(lambda_g, m_lamming), m_lammaxg);
+                       hydro_ng(i,j,k) = n0g / lambda_g;
+                   }
+
+                   // Make sure number concentrations are positive
+                   hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
+                   hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
+                   hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
+                   hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
+                   hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
+               }
+           );
+       }
+   }
+
 
 /**
  * Initializes vertical grid information needed for sedimentation calculations.
@@ -450,15 +573,24 @@ void
 Morrison::initialize_vertical_grid(std::unique_ptr<MultiFab>& z_phys_nd,
                                   std::unique_ptr<MultiFab>& detJ_cc)
 {
-  /*
   // Store pointers to vertical grid information
-    m_z_phys_nd = std::move(z_phys_nd);
-    m_detJ_cc = std::move(detJ_cc);
-  */
-    // Initialize any sedimentation-specific parameters
-    // For example: maximum allowed Courant number for sedimentation,
-    // minimum allowed layer thickness, etc.
-    m_max_sediment_courant = 1.0;
+       m_z_phys_nd = z_phys_nd.get();
+       m_detJ_cc = detJ_cc.get();
+
+       // Set maximum allowed Courant number for sedimentation
+       m_max_sediment_courant = 0.9;
+
+       // Initialize vertical grid for each cell
+       for (MFIter mfi(*m_z_phys_nd); mfi.isValid(); ++mfi) {
+           const Box& box = mfi.validbox();
+           auto const& z_phys = m_z_phys_nd->array(mfi);
+           auto const& detJ = m_detJ_cc->array(mfi);
+
+           // Store vertical grid information for use in sedimentation calculations
+           amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+               // Additional initialization if needed
+           });
+       }
 }
 
 /**
@@ -527,7 +659,6 @@ Morrison::gamma_function(const Real x) const
 }
 
 
-
 /**
 * Initializes the radar reflectivity calculation module.
 * This is analogous to the radar_init subroutine in the original code.
@@ -541,34 +672,34 @@ Morrison::initialize_radar_reflectivity()
    const int nrbins = 300;  // Number of bins for integration
 
    // Allocate arrays for radar calculations
-   m_xxds.resize(nrbins+1);
-   m_xxdg.resize(nrbins+1);
-   m_xdts.resize(nrbins+1);
-   m_xdtg.resize(nrbins+1);
-   m_simpson.resize(nrbins+1);
+      m_xxds.resize(nrbins);
+      m_xxdg.resize(nrbins);
+      m_xdts.resize(nrbins);
+      m_xdtg.resize(nrbins);
+      m_simpson.resize(nrbins);
 
    // Initialize arrays for reflectivity calculation
    Real maxD = 2.0e-2;  // Maximum diameter for integration (m)
    Real dD = maxD / nrbins;  // Diameter increment
 
    // Set up integration arrays
-   for (int n = 1; n <= nrbins; ++n) {
-       m_xxds[n] = (n-0.5) * dD;
-       m_xxdg[n] = (n-0.5) * dD;
+      for (int n = 0; n < nrbins; ++n) {
+          m_xxds[n] = (n+0.5) * dD;
+          m_xxdg[n] = (n+0.5) * dD;
        m_xdts[n] = dD;
        m_xdtg[n] = dD;
    }
 
    // Simpson's rule integration weights
-   m_simpson[1] = 1.0;
-   for (int n = 2; n < nrbins; ++n) {
+      m_simpson[0] = 1.0;
+      for (int n = 1; n < nrbins-1; ++n) {
        if (n % 2 == 0) {
            m_simpson[n] = 4.0;
        } else {
            m_simpson[n] = 2.0;
        }
    }
-   m_simpson[nrbins] = 1.0;
+      m_simpson[nrbins-1] = 1.0;
 
    // Parameters for wet/melting hydrometeors
    // These would be the same as in the original code for the
@@ -586,16 +717,22 @@ Morrison::initialize_radar_reflectivity()
    m_mixingrulestring_s = "maxwell";
    m_matrixstring_s = "water";
    m_inclusionstring_s = "spheroidal";
-   m_hoststring_s = "air";
+      m_hoststring_s = "snow";  // Changed to "snow" to properly identify snow particles
    m_hostmatrixstring_s = "icewater";
    m_hostinclusionstring_s = "spheroidal";
 
    m_mixingrulestring_g = "maxwell";
    m_matrixstring_g = "water";
    m_inclusionstring_g = "spheroidal";
-   m_hoststring_g = "air";
+      m_hoststring_g = "graupel";  // Changed to "graupel" to properly identify graupel particles
    m_hostmatrixstring_g = "icewater";
    m_hostinclusionstring_g = "spheroidal";
+
+      // Set radar wavelength and parameters
+      m_lambda_radar = 0.10;   // 10 cm wavelength
+      m_k_w = 0.93;            // K_w parameter for liquid water
+      m_lamda4 = std::pow(m_lambda_radar, 4.0);
+      m_pi5 = std::pow(m_pi, 5.0);
 }
 
 /**
