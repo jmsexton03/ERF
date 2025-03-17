@@ -145,6 +145,13 @@ public:
     void
     Compute_Coefficients ();
 
+    /**
+     * Applies accumulated tendencies to state variables.
+     * This function updates the state variables based on the tendencies
+     * calculated during the microphysics processes.
+     */
+    void ApplyTendencies();
+
     int
     Qmoist_Size () override { return Morrison::m_qmoist_size; }
 

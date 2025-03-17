@@ -66,7 +66,10 @@ Morrison::Advance(const amrex::Real& dt_advance,
     
     // Store timestep
     dt = dt_advance;
-    
+
+    // Reset tendency arrays to zero at the beginning of each timestep
+    m_tend->setVal(0.0);
+
     // 5. CLOUD PROCESSES
     // Cloud phase thermodynamics and saturation adjustment
     Cloud(sc);
@@ -92,6 +95,9 @@ Morrison::Advance(const amrex::Real& dt_advance,
     if (m_do_radar_ref) {
         ComputeRadarReflectivity();
     }
+
+   // Apply accumulated tendencies to state variables
+   ApplyTendencies();
 }
 
 void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
@@ -379,6 +385,130 @@ Morrison::ComputeRadarReflectivity()
         }
     }
 }
+
+   /**
+    * Applies accumulated tendencies to state variables.
+    * This function updates the state variables based on the tendencies
+    * calculated during the microphysics processes.
+    */
+   void Morrison::ApplyTendencies()
+   {
+       BL_PROFILE("Morrison::ApplyTendencies()");
+
+       // Loop through grids
+       for (MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
+           const Box& box = mfi.validbox();
+
+           // Get array data
+           auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+           auto const& hydro_qv = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
+           auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+           auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+           auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+           auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+           auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+           auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
+           auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
+           auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
+           auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
+           auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
+           auto const& qn_array = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
+           auto const& qt_array = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
+           auto const& qp_array = mic_fab_vars[MicVar_Morr::qp]->array(mfi);
+           auto const& tend = m_tend->array(mfi);
+
+           // Component indices for variables
+           const int t_comp = 0;   // Temperature
+           const int qv_comp = 2;  // Water vapor
+           const int qc_comp = 0;  // Cloud water
+           const int qi_comp = 2;  // Cloud ice
+           const int qr_comp = 1;  // Rain
+           const int qs_comp = 3;  // Snow
+           const int qg_comp = 4;  // Graupel
+           const int nc_comp = 5;  // Cloud droplet number
+           const int nr_comp = 6;  // Rain number
+           const int ni_comp = 7;  // Cloud ice number
+           const int ns_comp = 8;  // Snow number
+           const int ng_comp = 9;  // Graupel number
+
+           // Apply tendencies to state variables
+           amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+               // Apply temperature tendency
+               thermo_tabs(i,j,k) += tend(i,j,k,t_comp) * dt;
+
+               // Apply water vapor tendency
+               hydro_qv(i,j,k) += tend(i,j,k,qv_comp) * dt;
+               hydro_qv(i,j,k) = amrex::max(hydro_qv(i,j,k), 0.0);
+
+               // Apply cloud water tendency
+               hydro_qc(i,j,k) += tend(i,j,k,qc_comp) * dt;
+               hydro_qc(i,j,k) = amrex::max(hydro_qc(i,j,k), 0.0);
+
+               // Apply cloud ice tendency
+               hydro_qi(i,j,k) += tend(i,j,k,qi_comp) * dt;
+               hydro_qi(i,j,k) = amrex::max(hydro_qi(i,j,k), 0.0);
+
+               // Apply rain tendency
+               hydro_qr(i,j,k) += tend(i,j,k,qr_comp) * dt;
+               hydro_qr(i,j,k) = amrex::max(hydro_qr(i,j,k), 0.0);
+
+               // Apply snow tendency
+               hydro_qs(i,j,k) += tend(i,j,k,qs_comp) * dt;
+               hydro_qs(i,j,k) = amrex::max(hydro_qs(i,j,k), 0.0);
+
+               // Apply graupel tendency
+               hydro_qg(i,j,k) += tend(i,j,k,qg_comp) * dt;
+               hydro_qg(i,j,k) = amrex::max(hydro_qg(i,j,k), 0.0);
+
+               // Apply number concentration tendencies
+               hydro_nc(i,j,k) += tend(i,j,k,nc_comp) * dt;
+               hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
+
+               hydro_nr(i,j,k) += tend(i,j,k,nr_comp) * dt;
+               hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
+
+               hydro_ni(i,j,k) += tend(i,j,k,ni_comp) * dt;
+               hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
+
+               hydro_ns(i,j,k) += tend(i,j,k,ns_comp) * dt;
+               hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
+
+               hydro_ng(i,j,k) += tend(i,j,k,ng_comp) * dt;
+               hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
+
+               // Update derived quantities
+               qn_array(i,j,k) = hydro_qc(i,j,k) + hydro_qi(i,j,k);
+               qt_array(i,j,k) = hydro_qv(i,j,k) + qn_array(i,j,k);
+               qp_array(i,j,k) = hydro_qr(i,j,k) + hydro_qs(i,j,k) + hydro_qg(i,j,k);
+
+               // Set very small values to zero to avoid numerical issues
+               if (hydro_qc(i,j,k) < m_qsmall) {
+                   hydro_qc(i,j,k) = 0.0;
+                   hydro_nc(i,j,k) = 0.0;
+               }
+
+               if (hydro_qi(i,j,k) < m_qsmall) {
+                   hydro_qi(i,j,k) = 0.0;
+                   hydro_ni(i,j,k) = 0.0;
+               }
+
+               if (hydro_qr(i,j,k) < m_qsmall) {
+                   hydro_qr(i,j,k) = 0.0;
+                   hydro_nr(i,j,k) = 0.0;
+               }
+
+               if (hydro_qs(i,j,k) < m_qsmall) {
+                   hydro_qs(i,j,k) = 0.0;
+                   hydro_ns(i,j,k) = 0.0;
+               }
+
+               if (hydro_qg(i,j,k) < m_qsmall) {
+                   hydro_qg(i,j,k) = 0.0;
+                   hydro_ng(i,j,k) = 0.0;
+               }
+           });
+       }
+   }
 
     /**
      * Calculates sublimation/deposition rates for ice, snow, and graupel.
