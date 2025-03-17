@@ -51,7 +51,6 @@ Morrison::Cloud(const SolverChoice& sc)
         auto const& w = mic_fab_vars[MicVar_Morr::omega]->array(mfi);
         auto const& qn_arr = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
         auto const& qt_arr = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
-        auto const& theta_arr = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
 
         // This block implements cloud droplet activation (CCN activation)
         // This is a microphysical process that doesn't directly address 
@@ -145,8 +144,6 @@ Morrison::Cloud(const SolverChoice& sc)
         // water phase partitioning based on temperature thresholds
         // Process: MNUCCC (Homogeneous freezing of drops, Cloud)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Store initial state for energy conservation
-            const amrex::Real initial_energy = thermo_tabs(i,j,k) * m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
             // Homogeneous freezing of cloud water (all liquid freezes below threshold)
             if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qc(i,j,k) >= m_qsmall) {
                 // Convert all cloud water to cloud ice
@@ -170,22 +167,12 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_qc(i,j,k) = 0.0;
                 hydro_nc(i,j,k) = 0.0;
             }
-
-            // Update theta after temperature change, preserving consistency
-            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
-            theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
-            
-            // Ensure theta remains positive
-            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 
         // This block implements homogeneous freezing of rain
         // Also part of phase changes in the saturation adjustment process
         // Process: MNUCCR (Rain freezing, Precip)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Store initial state for energy conservation
-            const amrex::Real initial_energy = thermo_tabs(i,j,k) * m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-
             // Homogeneous freezing of rain (all rain freezes below threshold)
             if (thermo_tabs(i,j,k) <= t_homog_freeze && hydro_qr(i,j,k) >= m_qsmall) {
                 // Convert all rain water to graupel
@@ -209,13 +196,6 @@ Morrison::Cloud(const SolverChoice& sc)
                 hydro_qr(i,j,k) = 0.0;
                 hydro_nr(i,j,k) = 0.0;
             }
-
-            // Update theta after temperature change, preserving consistency
-            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
-            theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
-            
-            // Ensure theta remains positive
-            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 
         // This is the core saturation adjustment algorithm 
@@ -223,9 +203,6 @@ Morrison::Cloud(const SolverChoice& sc)
         // maintain thermodynamic equilibrium (saturation conditions)
         // Process: MNUCCC (Homogeneous freezing of drops, Cloud)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Store initial state for energy conservation
-            const amrex::Real initial_energy = thermo_tabs(i,j,k) * m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-            const amrex::Real initial_qt = hydro_qv(i,j,k) + hydro_qc(i,j,k) + hydro_qi(i,j,k);
             // Check if there is any condensate to adjust
             if (hydro_qc(i,j,k) < m_qsmall && hydro_qi(i,j,k) < m_qsmall && 
                 hydro_qv(i,j,k) < m_qsmall) {
@@ -362,53 +339,14 @@ Morrison::Cloud(const SolverChoice& sc)
             hydro_qc(i,j,k) += delta_qc;
             hydro_qi(i,j,k) += delta_qi;
             
-            // Update total condensate and total water
-            qn_arr(i,j,k) = hydro_qc(i,j,k) + hydro_qi(i,j,k);
-            qt_arr(i,j,k) = hydro_qv(i,j,k) + qn_arr(i,j,k);
+            // Update total condensate and total water will be done at the end of this kernel
             
             // Update temperature
             thermo_tabs(i,j,k) = T;
             
-            // Store both absolute temperature and update theta
-            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
-            theta_arr(i,j,k) = T / exner;
-
-            // Verify conservation of total water
-            const amrex::Real final_qt = hydro_qv(i,j,k) + hydro_qc(i,j,k) + hydro_qi(i,j,k);
-            if (std::abs(final_qt - initial_qt) > 1.0e-10) {
-                // Correct water conservation error by adjusting vapor
-                hydro_qv(i,j,k) += (initial_qt - final_qt);
-            }
+            // Note: We're storing absolute temperature in thermo_tabs, not potential temperature
+            // The conversion to potential temperature happens elsewhere when needed
             
-            // Verify conservation of energy after phase changes - more careful approach
-            const amrex::Real xxlv_new = 3.1484e6 - 2370.0 * T; // Updated latent heat of vaporization
-            const amrex::Real xxls_new = 3.15e6 - 2370.0 * T + 0.3337e6; // Updated latent heat of sublimation
-            const amrex::Real cpm_new = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-            
-            // Calculate final energy state (sensible + latent)
-            const amrex::Real final_sensible = cpm_new * T;
-            const amrex::Real final_latent = hydro_qv(i,j,k) * xxlv_new + hydro_qi(i,j,k) * xxls_new;
-            const amrex::Real final_energy = final_sensible + final_latent;
-            
-            // If energy not conserved beyond tolerance, adjust temperature to conserve energy
-            if (std::abs(final_energy - initial_energy) > 1.0e-6) {
-                // Limit the temperature adjustment to avoid negative temperatures
-                const amrex::Real delta_T = (initial_energy - final_energy) / cpm_new;
-                const amrex::Real T_new = amrex::max(T + delta_T, 100.0); // Ensure T stays above 100K
-                
-                // Only apply adjustment if it doesn't cause extreme changes
-                if (std::abs(T_new - T) < 10.0) {
-                    T = T_new;
-                    thermo_tabs(i,j,k) = T;
-                }
-            }
-
-            // Update theta consistently with temperature
-            theta_arr(i,j,k) = T / exner;
-            
-            // Ensure theta remains positive
-            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
-
             // Apply minimum thresholds
             if (hydro_qc(i,j,k) < m_qsmall) hydro_qc(i,j,k) = 0.0;
             if (hydro_qi(i,j,k) < m_qsmall) hydro_qi(i,j,k) = 0.0;
@@ -422,9 +360,6 @@ Morrison::Cloud(const SolverChoice& sc)
         // by allowing phase transitions that occur at temperatures above homogeneous freezing
         // Process: MNUCCC (Homogeneous freezing of drops, Cloud)
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Store initial state for energy conservation
-            const amrex::Real initial_energy = thermo_tabs(i,j,k) * m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-
             // Only proceed if below 0°C but above homogeneous freezing temperature
             const amrex::Real temp = thermo_tabs(i,j,k);
             if (temp < 269.15 && temp > t_homog_freeze && hydro_qc(i,j,k) >= m_qsmall) {
@@ -500,13 +435,6 @@ Morrison::Cloud(const SolverChoice& sc)
                 
                 thermo_tabs(i,j,k) += mnuc_limited * xlf / cpm * dt;
             }
-
-            // Update theta after temperature change
-            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
-            theta_arr(i,j,k) = thermo_tabs(i,j,k) / exner;
-            
-            // Ensure theta remains positive
-            theta_arr(i,j,k) = amrex::max(theta_arr(i,j,k), 1.0);
         });
 #if 0
         // This block implements primary ice nucleation (deposition/condensation freezing)
