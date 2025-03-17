@@ -2,7 +2,7 @@
 #include "ERF_IndexDefines.H"
 #include "ERF_TileNoZ.H"
 #include "ERF_EOS.H"
-
+ 
 using namespace amrex;
 
 /**
@@ -11,6 +11,8 @@ using namespace amrex;
 void
 Morrison::Cloud (const SolverChoice& /*sc*/)
 {
+    BL_PROFILE("Morrison::Cloud()");
+
     constexpr Real tbgmin = 253.15;
     constexpr Real tbgmax = 273.15;
     constexpr Real an = 1.0/(tbgmax - tbgmin);
@@ -197,8 +199,45 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 qsat = (an*tabs_array(i,j,k) - bn) * qvs + (1.0 - (an*tabs_array(i,j,k) - bn)) * qvi;
 
                 if (qt_array(i,j,k) > qsat) {
-                    tabs_array(i,j,k) = NewtonIterSat(i, j, k, fac_cond, fac_fus, fac_sub, an, bn, tabs_array, pres_array, qv_array, qcl_array, qci_array, qn_array, qt_array);
-                    theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres, rdOcp);
+                    // Repeat the Newton-Raphson iteration
+                    Real T_new = tabs_array(i,j,k);
+                    Real dtabs_new = 1.0;
+                    int niter_new = 0;
+                    Real tol_new = 1.0e-4;
+
+                    while (std::abs(dtabs_new) > tol_new && niter_new < 20) {
+                        Real omn_new = (T_new >= tbgmax) ? 1.0 : ((T_new <= tbgmin) ? 0.0 : (an*T_new - bn));
+                        Real domn_new = (T_new >= tbgmax || T_new <= tbgmin) ? 0.0 : an;
+
+                        evs = calc_saturation_vapor_pressure(T_new, 0);
+                        eis = calc_saturation_vapor_pressure(T_new, 1);
+                        evs = std::min(0.99*pres, evs);
+                        eis = std::min(0.99*pres, eis);
+                        if (eis > evs) eis = evs;
+
+                        qvs = m_ep_2 * evs / (pres - evs);
+                        qvi = m_ep_2 * eis / (pres - eis);
+
+                        Real dum = m_Rv * T_new * T_new;
+                        Real dqsdt = (3.1484e6 - 2370.0 * T_new) * qvs / dum;
+                        Real dqsidt = (3.15e6 - 2370.0 * T_new + 0.3337e6) * qvi / dum;
+
+                        Real qsat_new = omn_new * qvs + (1.0 - omn_new) * qvi;
+                        Real dqsat_new = omn_new * dqsdt + (1.0 - omn_new) * dqsidt + domn_new * (qvs - qvi);
+
+                        Real lsterms_new = omn_new * m_fac_cond + (1.0 - omn_new) * m_fac_sub;
+                        Real dlsterms_new = domn_new * (m_fac_cond - m_fac_sub);
+
+                        Real f_new = -T_new + tabs_array(i,j,k) + lsterms_new * (qv - qsat_new);
+                        Real df_new = -1.0 + dlsterms_new * (qv - qsat_new) - lsterms_new * dqsat_new;
+
+                        dtabs_new = -f_new / df_new;
+                        T_new += dtabs_new;
+                        niter_new++;
+                    }
+
+                    tabs_array(i,j,k) = T_new;
+                    theta_array(i,j,k) = getThgivenPandT(T_new, 100.0*pres, rdOcp);
                 }
             }
 
@@ -244,6 +283,57 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 Real cpm = m_cp * (1.0 + 0.887 * qv);
                 tabs_array(i,j,k) += mnuc_limited * xlf / cpm * dt;
             }
+#if 0
+            // Primary Ice Nucleation
+            if (temp < 273.15) {
+                Real evs = calc_saturation_vapor_pressure(temp, 0);
+                Real eis = calc_saturation_vapor_pressure(temp, 1);
+                evs = std::min(0.99*pres, evs);
+                eis = std::min(0.99*pres, eis);
+                if (eis > evs) eis = evs;
+
+                Real qvs = m_ep_2 * evs / (pres - evs);
+                Real qvi = m_ep_2 * eis / (pres - eis);
+                Real qvqvs = qv / qvs;
+                Real qvqvsi = qv / qvi;
+
+                if (m_inuc_type == 0 && qvqvsi >= 1.0 && temp <= 265.15) {
+                    Real kc2 = 0.005 * std::exp(0.304 * (t_freeze - temp)) * 1000.0;
+                    kc2 = std::min(kc2, 500.0e3);
+                    kc2 /= rho;
+
+                    if (kc2 > ni + ns + ng) {
+                        Real nnuccd = (kc2 - (ni + ns + ng)) / dt;
+                        Real mnuccd = nnuccd * m_mi0;
+                        qi += mnuccd * dt;
+                        ni += nnuccd * dt;
+                        tabs_array(i,j,k) += mnuccd * m_fac_sub * dt / (m_cp * (1.0 + 0.887 * qv));
+                    }
+                } else if (m_inuc_type == 1 && qvqvsi > 1.0) {
+                    Real kc2 = 0.16 * 1000.0;
+                    kc2 /= rho;
+
+                    if (kc2 > ni + ns + ng) {
+                        Real nnuccd = (kc2 - (ni + ns + ng)) / dt;
+                        Real mnuccd = nnuccd * m_mi0;
+                        qi += mnuccd * dt;
+                        ni += nnuccd * dt;
+                        tabs_array(i,j,k) += mnuccd * m_fac_sub * dt / (m_cp * (1.0 + 0.887 * qv));
+                    }
+                }
+            }
+
+            // Ice-Snow Categorization
+            if (temp < t_freeze && qi >= m_qsmall) {
+                Real lami = std::pow(m_cons12 * ni / qi, 1.0/m_di);
+                if (lami >= 1.0e-10 && 1.0/lami >= 2.0*m_dcs) {
+                    qs += qi;
+                    ns += ni;
+                    qi = 0.0;
+                    ni = 0.0;
+                }
+            }
+#endif
         });
     }
 }

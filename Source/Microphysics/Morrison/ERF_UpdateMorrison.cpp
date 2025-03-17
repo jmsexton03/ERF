@@ -73,7 +73,7 @@ Morrison::Advance(const amrex::Real& dt_advance,
     // 5. CLOUD PROCESSES
     // Cloud phase thermodynamics and saturation adjustment
     Cloud(sc);
-
+    /*
     // 3. Sublimation/Deposition of Ice Species
     SublimationDeposition(sc);
 
@@ -97,7 +97,7 @@ Morrison::Advance(const amrex::Real& dt_advance,
     }
 
    // Apply accumulated tendencies to state variables
-   ApplyTendencies();
+   ApplyTendencies();*/
 }
 
 void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
