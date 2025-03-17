@@ -49,6 +49,8 @@ Morrison::Cloud(const SolverChoice& sc)
         auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
         auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
         auto const& w = mic_fab_vars[MicVar_Morr::omega]->array(mfi);
+        auto const& qn_arr = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
+        auto const& qt_arr = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
 
         // This block implements cloud droplet activation (CCN activation)
         // This is a microphysical process that doesn't directly address 
@@ -337,21 +339,20 @@ Morrison::Cloud(const SolverChoice& sc)
             hydro_qc(i,j,k) += delta_qc;
             hydro_qi(i,j,k) += delta_qi;
             
-            // Update total condensate and total water
-            // (assuming these are tracked in separate variables)
-            // hydro(i,j,k,qn_comp) = hydro(i,j,k,qc_comp) + hydro(i,j,k,qi_comp);
-            // hydro(i,j,k,qt_comp) = hydro(i,j,k,qv_comp) + hydro(i,j,k,qn_comp);
+            // Update total condensate and total water will be done at the end of this kernel
             
             // Update temperature
             thermo_tabs(i,j,k) = T;
             
-            // Update potential temperature
-            const amrex::Real exner = std::pow(thermo_pres(i,j,k)/100000.0, m_rdOcp);
-            thermo_tabs(i,j,k) = T / exner;
+            // Note: We're storing absolute temperature in thermo_tabs, not potential temperature
+            // The conversion to potential temperature happens elsewhere when needed
             
             // Apply minimum thresholds
             if (hydro_qc(i,j,k) < m_qsmall) hydro_qc(i,j,k) = 0.0;
             if (hydro_qi(i,j,k) < m_qsmall) hydro_qi(i,j,k) = 0.0;
+
+            qn_arr(i,j,k) = hydro_qc(i,j,k) + hydro_qi(i,j,k);
+            qt_arr(i,j,k) = hydro_qv(i,j,k) + qn_arr(i,j,k);
         });
 
 
@@ -473,8 +474,9 @@ Morrison::Cloud(const SolverChoice& sc)
                 amrex::Real qvqvs = hydro_qv(i,j,k) / qvs;
                 amrex::Real qvqvsi = hydro_qv(i,j,k) / qvi;
 
-                // Ice nucleation parameterization (Cooper 1986)
-                if (m_inuc_type == 0) { // Mid-latitude (Cooper)
+                // Ice nucleation parameterization
+                // Cooper (1986) for mid-latitude conditions
+                if (m_inuc_type == 0 || m_inuc == 0) { // Mid-latitude (Cooper)
                     // Only activate if supersaturated with respect to ice
                     // and below a certain temperature threshold
                     if (qvqvsi >= 1.0 && temp <= 265.15) {
@@ -495,7 +497,7 @@ Morrison::Cloud(const SolverChoice& sc)
                     }
                 }
                 // MPACE (Morrison et al. 2007)
-                else if (m_inuc_type == 1) { // Arctic (MPACE)
+                else if (m_inuc_type == 1 || m_inuc == 1) { // Arctic (MPACE)
                     // Only activate if supersaturated with respect to ice
                     if (qvqvsi > 1.0) {
                         // Constant nucleation rate (per m^3)
@@ -512,13 +514,15 @@ Morrison::Cloud(const SolverChoice& sc)
                     }
                 }
 
-                // Apply nucleation (add to cloud ice)
-                hydro_qi(i,j,k) += mnuccd * dt;
-                hydro_ni(i,j,k) += nnuccd * dt;
-
-                // Apply latent heating
-                const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
-                thermo_tabs(i,j,k) += mnuccd * m_fac_sub * dt / cpm;
+                // Apply nucleation (add to cloud ice) if there's any nucleation happening
+                if (mnuccd > 0.0) {
+                    hydro_qi(i,j,k) += mnuccd * dt;
+                    hydro_ni(i,j,k) += nnuccd * dt;
+                    
+                    // Apply latent heating
+                    const amrex::Real cpm = m_cp * (1.0 + 0.887 * hydro_qv(i,j,k));
+                    thermo_tabs(i,j,k) += mnuccd * m_fac_sub * dt / cpm;
+                }
             }
         });
         // This block handles ice-snow categorization based on particle size
@@ -532,8 +536,8 @@ Morrison::Cloud(const SolverChoice& sc)
             // Only check if there is appreciable cloud ice
             if (hydro_qi(i,j,k) >= m_qsmall && thermo_tabs(i,j,k) < t_freeze) {
                 // Calculate size distribution parameter
-                const amrex::Real lami = std::pow(m_cons12 * hydro_ni(i,j,k) / 
-                                        hydro_qi(i,j,k), 1.0/m_di);
+                const amrex::Real lami = (hydro_ni(i,j,k) > 0.0) ? 
+                    std::pow(m_cons12 * hydro_ni(i,j,k) / hydro_qi(i,j,k), 1.0/m_di) : 0.0;
                 
                 // Check if mean size is valid
                 if (lami >= 1.0e-10) {
