@@ -105,6 +105,7 @@ Morrison::Precip(const SolverChoice& sc)
     constexpr amrex::Real one = 1.0;
     constexpr amrex::Real zero = 0.0;
     constexpr amrex::Real t_freezing = 273.15; // Freezing point of water in K
+    constexpr amrex::Real qsmall = 1.0e-6;
 
     // Temperature thresholds for HM-process (K)
     constexpr amrex::Real t_hm_max = 270.16;
@@ -209,7 +210,7 @@ Morrison::Precip(const SolverChoice& sc)
                 
                 n0r = nr * lamr;
             }
-            
+#if 0            
             // Snow distribution
             if (qs >= m_qsmall) {
                 lams = std::pow(m_cons1 * ns / qs, 1.0/m_ds);
@@ -242,7 +243,7 @@ Morrison::Precip(const SolverChoice& sc)
                 
                 n0i = ni * lami;
             }
-            
+#endif            
             // Cloud distribution
             if (qc >= m_qsmall) {
                 // Cloud droplet gamma distribution shape parameter
@@ -345,8 +346,10 @@ Morrison::Precip(const SolverChoice& sc)
             // Description: Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            if (qc >= 1.0e-6 && qr >= 1.0e-6) {
-                pra = 13.4 * std::pow(rho * qc, 0.18) * std::pow(qr, 0.65) * std::pow(rho, 0.65);
+            // accrete_cloud_water_rain
+            // WRF Line 2801
+            if (qc >= qsmall && qr >= qsmall) {
+                pra = 67.0 * std::pow((qc * qr), 1.15);
 
                 // Calculate number accretion rate
                 npra = pra / (qc / nc);
