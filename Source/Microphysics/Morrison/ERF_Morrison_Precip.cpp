@@ -243,7 +243,7 @@ Morrison::Precip(const SolverChoice& sc)
                 
                 n0i = ni * lami;
             }
-#endif            
+
             // Cloud distribution
             if (qc >= m_qsmall) {
                 // Cloud droplet gamma distribution shape parameter
@@ -338,7 +338,7 @@ Morrison::Precip(const SolverChoice& sc)
                     }
                 }
             }
-
+#endif
             //----------------------------------------------------------------------
             // Q Process: PRA
             // N Process: NPRA
@@ -365,18 +365,39 @@ Morrison::Precip(const SolverChoice& sc)
             // Description: Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            if (qc >= 1.0e-6) {
+            // accrete_cloud_water_rain
+            // WRF Line 2412
+            if (qc >= qsmall) {
+#ifdef ERF_USE_CAM
+                // CAM implementation
+                // Calculate variance coefficient if using non-uniform microphysics
+                Real prc_coef = 1.0;
+                if (!microp_uniform) {
+                    prc_coef = var_coef(relvar, 2.47);
+                }
+
+                // CAM version with different exponent (-1.1) and additional coefficients
+                prc = prc_coef * 0.01 * 1350.0 * std::pow(qc, 2.47) * 
+                      std::pow(nc * 1.0e-6 * rho, -1.1);
+              
+                // Calculate number conversion rates using CAM approach
+                nprc = prc * (1.0/droplet_mass_25um);
+                nprc1 = prc * nc / qc;
+#else
+                // Original implementation
                 prc = 1350.0 * std::pow(qc, 2.47) * 
                       std::pow(nc * rho / 1.0e6, -1.79);
-                
+              
                 // Calculate number conversion rates
                 nprc1 = prc / m_cons29;
                 nprc = prc / (qc / nc);
+#endif
                 
                 // Limit by available cloud water
                 nprc = amrex::min(nprc, nc / dt);
                 nprc1 = amrex::min(nprc1, nprc);
             }
+#if 0
 #if 0
             //----------------------------------------------------------------------
             // Q Process: PRACI
@@ -977,6 +998,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Record cloud-to-precipitation conversion for chemistry
             c2prec(i,j,k) = prc + pra + psacws + qmults + psacwg + qmultg;
             */
+#endif
         });
     }
 }
