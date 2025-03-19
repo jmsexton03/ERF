@@ -414,6 +414,7 @@ Morrison::Precip(const SolverChoice& sc)
                 // Calculate number conversion rates
                 nprc1 = prc / m_cons29;
                 nprc = prc / (qc / nc);
+//printf("%d %d %d\t%24.24g, %24.24g,  %24.24g, %24.24g, %24.24g, %24.24g\n",i,j,k,         hydro_nc(i,j,k) , qc ,nc ,rho ,nprc1, nprc);
 #endif
                 
                 // Limit by available cloud water
