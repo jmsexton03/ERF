@@ -43,9 +43,11 @@ ERF::setPlotVariables (const std::string& pp_plot_var_names, Vector<std::string>
 
     for (int i = 0; i < cons_names.size(); ++i) {
         if ( containerHasElement(plot_var_names, cons_names[i]) ) {
-            if ( (solverChoice.moisture_type == MoistureType::SAM) || (cons_names[i] != "rhoQ4" &&
-                                                                       cons_names[i] != "rhoQ5" &&
-                                                                       cons_names[i] != "rhoQ6") )
+            if ( (solverChoice.moisture_type == MoistureType::SAM ||
+                  solverChoice.moisture_type == MoistureType::Morrison) ||
+                 (cons_names[i] != "rhoQ4" &&
+                  cons_names[i] != "rhoQ5" &&
+                  cons_names[i] != "rhoQ6") )
             {
                 tmp_plot_names.push_back(cons_names[i]);
             } // moisture_type
@@ -73,7 +75,8 @@ ERF::setPlotVariables (const std::string& pp_plot_var_names, Vector<std::string>
                  (derived_names[i] != "z_phys" && derived_names[i] != "detJ") )
             {
                 if ( (solverChoice.moisture_type == MoistureType::SAM ||
-                      solverChoice.moisture_type == MoistureType::SAM_NoIce) ||
+                      solverChoice.moisture_type == MoistureType::SAM_NoIce ||
+                      solverChoice.moisture_type == MoistureType::Morrison) ||
                      (derived_names[i] != "qi" &&
                       derived_names[i] != "qsnow" &&
                       derived_names[i] != "qgraup" &&
@@ -1163,7 +1166,8 @@ ERF::WritePlotFile (int which, PlotFileType plotfile_type, Vector<std::string> p
                     mf_comp += 1;
                 }
             }
-            else if(solverChoice.moisture_type == MoistureType::SAM)
+            else if(solverChoice.moisture_type == MoistureType::SAM ||
+                    solverChoice.moisture_type == MoistureType::Morrison)
             {
                 if (containerHasElement(plot_var_names, "rain_accum"))
                 {

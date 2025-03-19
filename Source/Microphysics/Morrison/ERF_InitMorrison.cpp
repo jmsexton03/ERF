@@ -19,12 +19,12 @@ using namespace amrex;
  * @param[in] detJ_cc Jacobian determinant at cell centers
  */
 void
-Morrison::Init(const MultiFab& cons_in,
-               const BoxArray& grids,
-               const Geometry& geom,
-               const Real& dt_advance,
-               std::unique_ptr<MultiFab>& z_phys_nd,
-               std::unique_ptr<MultiFab>& detJ_cc)
+Morrison::Init (const MultiFab& cons_in,
+                const BoxArray& grids,
+                const Geometry& geom,
+                const Real& dt_advance,
+                std::unique_ptr<MultiFab>& z_phys_nd,
+                std::unique_ptr<MultiFab>& detJ_cc)
 {
     BL_PROFILE("Morrison::Init()");
 
@@ -38,7 +38,8 @@ Morrison::Init(const MultiFab& cons_in,
 
     MicVarMap.resize(m_qmoist_size);
     MicVarMap = {MicVar_Morr::qt, MicVar_Morr::qv , MicVar_Morr::qcl, MicVar_Morr::qci,
-                 MicVar_Morr::qp, MicVar_Morr::qpr, MicVar_Morr::qps, MicVar_Morr::qpg, MicVar_Morr::rain_accum, MicVar_Morr::snow_accum, MicVar_Morr::graup_accum};
+                 MicVar_Morr::qp, MicVar_Morr::qpr, MicVar_Morr::qps, MicVar_Morr::qpg,
+                 MicVar_Morr::rain_accum, MicVar_Morr::snow_accum, MicVar_Morr::graup_accum};
 
     // initialize microphysics variables
     for (auto ivar = 0; ivar < MicVar_Morr::NumVars; ++ivar) {
@@ -103,9 +104,6 @@ Morrison::Init(const MultiFab& cons_in,
     // Allocate internal MultiFabs for microphysics variables
     allocate_arrays(grids, geom);
 
-    // Copy input data to internal storage
-    copy_input_data(cons_in);
-
     // Initialize thermodynamic variables
     initialize_thermodynamics(geom);
 
@@ -120,8 +118,6 @@ Morrison::Init(const MultiFab& cons_in,
         initialize_radar_parameters();
         initialize_radar_reflectivity();
     }
-    // Compute coefficients for microphysical processes
-    Compute_Coefficients();
 
     // Initialize viscosity parameter for contact nucleation
     m_mu = 1.496E-6 * std::pow(293.15, 1.5) / (293.15 + 120.0);
@@ -140,7 +136,7 @@ Morrison::Init(const MultiFab& cons_in,
  * Includes all constants needed for the full range of microphysical processes.
  */
 void
-Morrison::initialize_constants()
+Morrison::initialize_constants ()
 {
     // Mathematical constants
     m_pi = 3.1415926535897932384626434;
@@ -455,7 +451,7 @@ Morrison::allocate_arrays(const BoxArray& grids, const Geometry& geom)
 }
 
 void
-Morrison::copy_input_data(const MultiFab& cons_in)
+Morrison::copy_input_data (const MultiFab& cons_in)
 {
     // Copy data from conserved variables to microphysics variables
     // This will be handled by Copy_State_to_Micro
@@ -463,104 +459,104 @@ Morrison::copy_input_data(const MultiFab& cons_in)
 }
 
 void
-Morrison::initialize_thermodynamics(const Geometry& geom)
+Morrison::initialize_thermodynamics (const Geometry& geom)
 {
     // Initialize thermodynamic variables
     // This is now handled by the Copy_State_to_Micro method
     // Additional thermodynamic calculations can be done here if needed
 }
 
-   void
-   Morrison::initialize_size_distributions()
-   {
-       // Initialize size distributions for hydrometeors
-       #ifdef AMREX_USE_OMP
-       #pragma omp parallel if (Gpu::notInLaunchRegion())
-       #endif
-       for (MFIter mfi(*mic_fab_vars[MicVar_Morr::qcl]); mfi.isValid(); ++mfi) {
-           const Box& box = mfi.validbox();
-
-           // Get array accessors
-           auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
-           auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
-           auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
-           auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
-           auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-
-           auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
-           auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
-           auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
-           auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
-           auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
-
-           auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
-           auto const& thermo_temp = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
-
-           // Initialize size distribution parameters
-           amrex::ParallelFor(box,
-               [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-                   // Get density for this cell
-                   Real rho = thermo_rho(i,j,k);
-                   Real temp = thermo_temp(i,j,k);
-
-                   // Set constant droplet number concentration if specified
-                   if (m_inum == 1) {
-                       hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
-                   }
-
-                   // Initialize hydrometeor number concentrations based on mixing ratios
-                   // These are approximate initializations that will be refined during the first timestep
-
-                   // Cloud droplets - if not using constant number
-                   if (m_inum == 0 && hydro_qc(i,j,k) > m_qsmall) {
-                       // Assume mean diameter of 10 microns for initialization
-                       Real mean_mass = m_pi/6.0 * m_rhow * std::pow(10.0e-6, 3);
-                       hydro_nc(i,j,k) = hydro_qc(i,j,k) / mean_mass;
-                   }
-
-                   // Cloud ice
-                   if (hydro_qi(i,j,k) > m_qsmall) {
-                       // Use initial mass for ice crystals
-                       hydro_ni(i,j,k) = hydro_qi(i,j,k) / m_mi0;
-                   }
-
-                   // Rain
-                   if (hydro_qr(i,j,k) > m_qsmall) {
-                       // Use Marshall-Palmer distribution with N0 = 8e6 m^-4
-                       Real n0r = 8.0e6; // m^-4
-                       Real lambda_r = std::pow(m_pi * m_rhow * n0r / (rho * hydro_qr(i,j,k)), 0.25);
-                       lambda_r = std::min(std::max(lambda_r, m_lamminr), m_lammaxr);
-                       hydro_nr(i,j,k) = n0r / lambda_r;
-                   }
-
-                   // Snow
-                   if (hydro_qs(i,j,k) > m_qsmall) {
-                       // Use exponential distribution with N0 = 3e6 m^-4
-                       Real n0s = 3.0e6; // m^-4
-                       Real lambda_s = std::pow(m_pi * m_rhosn * n0s / (rho * hydro_qs(i,j,k) * m_cons1), 0.25);
-                       lambda_s = std::min(std::max(lambda_s, m_lammins), m_lammaxs);
-                       hydro_ns(i,j,k) = n0s / lambda_s;
-                   }
-
-                   // Graupel
-                   if (hydro_qg(i,j,k) > m_qsmall) {
-                       // Use exponential distribution with N0 = 4e6 m^-4
-                       Real n0g = 4.0e6; // m^-4
-                       Real lambda_g = std::pow(m_pi * m_rhog * n0g / (rho * hydro_qg(i,j,k) * m_cons2), 0.25);
-                       lambda_g = std::min(std::max(lambda_g, m_lamming), m_lammaxg);
-                       hydro_ng(i,j,k) = n0g / lambda_g;
-                   }
-
-                   // Make sure number concentrations are positive
-                   hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
-                   hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
-                   hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
-                   hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
-                   hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
-               }
-           );
-       }
-   }
+void
+Morrison::initialize_size_distributions ()
+{
+    // Initialize size distributions for hydrometeors
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*mic_fab_vars[MicVar_Morr::qcl]); mfi.isValid(); ++mfi) {
+        const Box& box = mfi.validbox();
+        
+        // Get array accessors
+        auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+        auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+        auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+        auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+        
+        auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
+        auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
+        auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
+        auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
+        auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
+        
+        auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+        auto const& thermo_temp = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+        
+        // Initialize size distribution parameters
+        amrex::ParallelFor(box,
+        [=] AMREX_GPU_DEVICE (int i, int j, int k)
+        {
+            // Get density for this cell
+            Real rho = thermo_rho(i,j,k);
+            Real temp = thermo_temp(i,j,k);
+            
+            // Set constant droplet number concentration if specified
+            if (m_inum == 1) {
+                hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
+            }
+            
+            // Initialize hydrometeor number concentrations based on mixing ratios
+            // These are approximate initializations that will be refined during the first timestep
+            
+            // Cloud droplets - if not using constant number
+            if (m_inum == 0 && hydro_qc(i,j,k) > m_qsmall) {
+                // Assume mean diameter of 10 microns for initialization
+                Real mean_mass = m_pi/6.0 * m_rhow * std::pow(10.0e-6, 3);
+                hydro_nc(i,j,k) = hydro_qc(i,j,k) / mean_mass;
+            }
+            
+            // Cloud ice
+            if (hydro_qi(i,j,k) > m_qsmall) {
+                // Use initial mass for ice crystals
+                hydro_ni(i,j,k) = hydro_qi(i,j,k) / m_mi0;
+            }
+            
+            // Rain
+            if (hydro_qr(i,j,k) > m_qsmall) {
+                // Use Marshall-Palmer distribution with N0 = 8e6 m^-4
+                Real n0r = 8.0e6; // m^-4
+                Real lambda_r = std::pow(m_pi * m_rhow * n0r / (rho * hydro_qr(i,j,k)), 0.25);
+                lambda_r = std::min(std::max(lambda_r, m_lamminr), m_lammaxr);
+                hydro_nr(i,j,k) = n0r / lambda_r;
+            }
+            
+            // Snow
+            if (hydro_qs(i,j,k) > m_qsmall) {
+                // Use exponential distribution with N0 = 3e6 m^-4
+                Real n0s = 3.0e6; // m^-4
+                Real lambda_s = std::pow(m_pi * m_rhosn * n0s / (rho * hydro_qs(i,j,k) * m_cons1), 0.25);
+                lambda_s = std::min(std::max(lambda_s, m_lammins), m_lammaxs);
+                hydro_ns(i,j,k) = n0s / lambda_s;
+            }
+            
+            // Graupel
+            if (hydro_qg(i,j,k) > m_qsmall) {
+                // Use exponential distribution with N0 = 4e6 m^-4
+                Real n0g = 4.0e6; // m^-4
+                Real lambda_g = std::pow(m_pi * m_rhog * n0g / (rho * hydro_qg(i,j,k) * m_cons2), 0.25);
+                lambda_g = std::min(std::max(lambda_g, m_lamming), m_lammaxg);
+                hydro_ng(i,j,k) = n0g / lambda_g;
+            }
+            
+            // Make sure number concentrations are positive
+            hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
+            hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
+            hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
+            hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
+            hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
+        });
+    } // mfi
+}
 
 
 /**
@@ -570,8 +566,8 @@ Morrison::initialize_thermodynamics(const Geometry& geom)
  * @param[in] detJ_cc Jacobian determinant at cell centers
  */
 void
-Morrison::initialize_vertical_grid(std::unique_ptr<MultiFab>& z_phys_nd,
-                                  std::unique_ptr<MultiFab>& detJ_cc)
+Morrison::initialize_vertical_grid (std::unique_ptr<MultiFab>& z_phys_nd,
+                                    std::unique_ptr<MultiFab>& detJ_cc)
 {
   // Store pointers to vertical grid information
        m_z_phys_nd = z_phys_nd.get();
@@ -597,7 +593,7 @@ Morrison::initialize_vertical_grid(std::unique_ptr<MultiFab>& z_phys_nd,
  * Initializes parameters needed for radar reflectivity calculations.
  */
 void
-Morrison::initialize_radar_parameters()
+Morrison::initialize_radar_parameters ()
 {
     if (!m_do_radar_ref) return;
 
@@ -619,7 +615,7 @@ Morrison::initialize_radar_parameters()
  * @return The gamma function evaluated at x
  */
 Real
-Morrison::gamma_function(const Real x) const
+Morrison::gamma_function (const Real x) const
 {
     // Implementation of gamma function using Lanczos approximation
     // or another suitable approximation method
@@ -664,7 +660,7 @@ Morrison::gamma_function(const Real x) const
 * This is analogous to the radar_init subroutine in the original code.
 */
 void
-Morrison::initialize_radar_reflectivity()
+Morrison::initialize_radar_reflectivity ()
 {
    if (!m_do_radar_ref) return;
 
@@ -686,8 +682,8 @@ Morrison::initialize_radar_reflectivity()
       for (int n = 0; n < nrbins; ++n) {
           m_xxds[n] = (n+0.5) * dD;
           m_xxdg[n] = (n+0.5) * dD;
-       m_xdts[n] = dD;
-       m_xdtg[n] = dD;
+          m_xdts[n] = dD;
+          m_xdtg[n] = dD;
    }
 
    // Simpson's rule integration weights
@@ -717,22 +713,22 @@ Morrison::initialize_radar_reflectivity()
    m_mixingrulestring_s = "maxwell";
    m_matrixstring_s = "water";
    m_inclusionstring_s = "spheroidal";
-      m_hoststring_s = "snow";  // Changed to "snow" to properly identify snow particles
+   m_hoststring_s = "snow";  // Changed to "snow" to properly identify snow particles
    m_hostmatrixstring_s = "icewater";
    m_hostinclusionstring_s = "spheroidal";
 
    m_mixingrulestring_g = "maxwell";
    m_matrixstring_g = "water";
    m_inclusionstring_g = "spheroidal";
-      m_hoststring_g = "graupel";  // Changed to "graupel" to properly identify graupel particles
+   m_hoststring_g = "graupel";  // Changed to "graupel" to properly identify graupel particles
    m_hostmatrixstring_g = "icewater";
    m_hostinclusionstring_g = "spheroidal";
 
-      // Set radar wavelength and parameters
-      m_lambda_radar = 0.10;   // 10 cm wavelength
-      m_k_w = 0.93;            // K_w parameter for liquid water
-      m_lamda4 = std::pow(m_lambda_radar, 4.0);
-      m_pi5 = std::pow(m_pi, 5.0);
+   // Set radar wavelength and parameters
+   m_lambda_radar = 0.10;   // 10 cm wavelength
+   m_k_w = 0.93;            // K_w parameter for liquid water
+   m_lamda4 = std::pow(m_lambda_radar, 4.0);
+   m_pi5 = std::pow(m_pi, 5.0);
 }
 
 /**
@@ -787,6 +783,7 @@ Morrison::Copy_State_to_Micro (const MultiFab& cons_in)
             tabs_array(i,j,k)  = getTgivenRandRTh(states_array(i,j,k,Rho_comp),
                                                   states_array(i,j,k,RhoTheta_comp),
                                                   qv_array(i,j,k));
+            //pres_array(i,j,k)  = getPgivenRTh(states_array(i,j,k,RhoTheta_comp), qv_array(i,j,k));
             pres_array(i,j,k)  = getPgivenRTh(states_array(i,j,k,RhoTheta_comp), qv_array(i,j,k)) * 0.01;
         });
     }

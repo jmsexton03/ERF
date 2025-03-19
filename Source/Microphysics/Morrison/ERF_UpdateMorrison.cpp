@@ -59,8 +59,8 @@ Morrison::Copy_Micro_to_State (MultiFab& cons)
  * @param[in] sc Solver choices and configuration
  */
 void
-Morrison::Advance(const amrex::Real& dt_advance,
-                 const SolverChoice& sc)
+Morrison::Advance (const amrex::Real& dt_advance,
+                   const SolverChoice& sc)
 {
     BL_PROFILE("Morrison::Advance()");
     

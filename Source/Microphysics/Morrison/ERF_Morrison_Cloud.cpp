@@ -27,10 +27,10 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
         auto  qt_array = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
         auto  qn_array = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
         auto  qv_array = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
-        auto qcl_array = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
-        auto qci_array = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
-        auto qg_array = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-        auto qr_array = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+        auto  qc_array = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
+        auto  qi_array = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        auto  qg_array = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+        auto  qr_array = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
         auto  rho_array = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto  tabs_array = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
         auto theta_array = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
@@ -49,19 +49,20 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
             // Cloud phase adjustments and saturation
             Real temp = tabs_array(i,j,k);
             Real pres = pres_array(i,j,k);
-            Real rho = rho_array(i,j,k);
-            Real qv = qv_array(i,j,k);
-            Real qc = qcl_array(i,j,k);
-            Real qi = qci_array(i,j,k);
-            Real qg = qg_array(i,j,k);
-            Real qr = qr_array(i,j,k);
-            Real nc = nc_array(i,j,k);
-            Real nr = nr_array(i,j,k);
-            Real ni = ni_array(i,j,k);
-            Real ns = ns_array(i,j,k);
-            Real ng = ng_array(i,j,k);
+            Real rho  = rho_array(i,j,k);
+            Real qv   = qv_array(i,j,k);
+            Real qc   = qc_array(i,j,k);
+            Real qi   = qi_array(i,j,k);
+            Real qg   = qg_array(i,j,k);
+            Real qr   = qr_array(i,j,k);
+            Real nc   = nc_array(i,j,k);
+            Real nr   = nr_array(i,j,k);
+            Real ni   = ni_array(i,j,k);
+            Real ns   = ns_array(i,j,k);
+            Real ng   = ng_array(i,j,k);
             Real w_local = w_array(i,j,k);
 
+#if 0
             // CCN Activation
             if (temp > 273.15 && qc < 0.05e-3) {
                 Real w_eff = w_local;
@@ -120,62 +121,30 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 qr = 0.0;
                 nr_array(i,j,k) = 0.0;
             }
+#endif
 
-            // Saturation Adjustment
-            if (qc < m_qsmall && qi < m_qsmall && qv < m_qsmall) return;
+            // Saturation moisture fractions
+            Real qsat, qsatw, qsati;
+            Real omn  = 1.0; //(T >= tbgmax) ? 1.0 : ((T <= tbgmin) ? 0.0 : (an*T - bn));
+            erf_qsatw(tabs_array(i,j,k), pres_array(i,j,k), qsatw);
+            erf_qsati(tabs_array(i,j,k), pres_array(i,j,k), qsati);
+            qsat = omn * qsatw  + (1.0-omn) * qsati;
 
-            Real T = temp;
-            Real evs = calc_saturation_vapor_pressure(T, 0);
-            Real eis = calc_saturation_vapor_pressure(T, 1);
-            evs = std::min(0.99*pres, evs);
-            eis = std::min(0.99*pres, eis);
-            if (eis > evs) eis = evs;
+            if (qt_array(i,j,k) > qsat) {
 
-            Real qvs = m_ep_2 * evs / (pres - evs);
-            Real qvi = m_ep_2 * eis / (pres - eis);
-            Real qsat = (an*T - bn) * qvs + (1.0 - (an*T - bn)) * qvi;
+                // Update temperature
+                tabs_array(i,j,k) = NewtonIterSat(i, j, k   , 2   ,
+                                                  fac_cond  , fac_fus   , fac_sub ,
+                                                  an        , bn        ,
+                                                  tabs_array, pres_array,
+                                                  qv_array  , qc_array  , qi_array,
+                                                  qn_array  , qt_array);
 
-            if (qv > qsat) {
-                // Newton Iteration
-                int niter = 0;
-                Real dtabs = 1.0;
-                Real tol = 1.0e-4;
+                // Update theta
+                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
 
-                while (std::abs(dtabs) > tol && niter < 20) {
-                    Real omn = (T >= tbgmax) ? 1.0 : ((T <= tbgmin) ? 0.0 : (an*T - bn));
-                    Real domn = (T >= tbgmax || T <= tbgmin) ? 0.0 : an;
-
-                    evs = calc_saturation_vapor_pressure(T, 0);
-                    eis = calc_saturation_vapor_pressure(T, 1);
-                    evs = std::min(0.99*pres, evs);
-                    eis = std::min(0.99*pres, eis);
-                    if (eis > evs) eis = evs;
-
-                    qvs = m_ep_2 * evs / (pres - evs);
-                    qvi = m_ep_2 * eis / (pres - eis);
-
-                    Real dum = m_Rv * T * T;
-                    Real dqsdt = (3.1484e6 - 2370.0 * T) * qvs / dum;
-                    Real dqsidt = (3.15e6 - 2370.0 * T + 0.3337e6) * qvi / dum;
-
-                    Real qsat = omn * qvs + (1.0 - omn) * qvi;
-                    Real dqsat = omn * dqsdt + (1.0 - omn) * dqsidt + domn * (qvs - qvi);
-
-                    Real lsterms = omn * m_fac_cond + (1.0 - omn) * m_fac_sub;
-                    Real dlsterms = domn * (m_fac_cond - m_fac_sub);
-
-                    Real f = -T + temp + lsterms * (qv - qsat);
-                    Real df = -1.0 + dlsterms * (qv - qsat) - lsterms * dqsat;
-
-                    dtabs = -f / df;
-                    T += dtabs;
-                    niter++;
-                }
-
-                tabs_array(i,j,k) = T;
-                theta_array(i,j,k) = getThgivenPandT(T, 100.0*pres, rdOcp);
-                pres_array(i,j,k) *= 0.01;
             } else {
+                // Put cloud and ice in vapor
                 Real delta_qv = qc + qi;
                 Real delta_qc = qc;
                 Real delta_qi = qi;
@@ -184,88 +153,32 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 qi = 0.0;
                 qn_array(i,j,k) = 0.0;
                 qt_array(i,j,k) = qv;
+                
+                // Update temperature (endothermic since we evap/sublime)
+                tabs_array(i,j,k) -= fac_cond * delta_qc + fac_sub * delta_qi;
+                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
 
-//                tabs_array(i,j,k) -= fac_cond * delta_qc + fac_sub * delta_qi;
-//                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres, rdOcp);
-/*
-                // Calculate the deficit in water vapor
-                Real delta_qv = qv - qsat; // Negative value indicates deficit
-
-                // Determine phase partitioning based on temperature
-                Real omn = (T >= tbgmax) ? 1.0 : ((T <= tbgmin) ? 0.0 : (an * T - bn));
-
-                // Partition deficit between liquid and ice
-                // Ensure delta_qc and delta_qi are positive when there's a deficit
-                Real delta_qc = std::min(qc, -delta_qv * omn);    // Amount of liquid water to condense
-                Real delta_qi = std::min(qi, -delta_qv * (1.0 - omn)); // Amount of ice to form
-
-                // Update mixing ratios
-                qv_array(i,j,k) = qsat; // Set vapor to saturation
-                qcl_array(i,j,k) += delta_qc; // Add condensed liquid water
-                qci_array(i,j,k) += delta_qi; // Add formed ice
-*/
-                // Calculate heat capacity including water vapor
-                Real cpm = m_cp * (1.0 + 0.887 * qv_array(i,j,k));
-
-                // Apply latent heating (positive when condensing/cooling)
-                tabs_array(i,j,k) += (delta_qc * m_fac_cond + delta_qi * m_fac_sub) / cpm;
-
-                // Update potential temperature
-                theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0 * pres, rdOcp);
-
-                evs = calc_saturation_vapor_pressure(tabs_array(i,j,k), 0);
-                eis = calc_saturation_vapor_pressure(tabs_array(i,j,k), 1);
-                evs = std::min(0.99*pres, evs);
-                eis = std::min(0.99*pres, eis);
-                if (eis > evs) eis = evs;
-
-                qvs = m_ep_2 * evs / (pres - evs);
-                qvi = m_ep_2 * eis / (pres - eis);
-                qsat = (an*tabs_array(i,j,k) - bn) * qvs + (1.0 - (an*tabs_array(i,j,k) - bn)) * qvi;
+                // Saturation moisture fractions
+                erf_qsatw(tabs_array(i,j,k), pres_array(i,j,k), qsatw);
+                erf_qsati(tabs_array(i,j,k), pres_array(i,j,k), qsati);
+                qsat = omn * qsatw  + (1.0-omn) * qsati;
 
                 if (qt_array(i,j,k) > qsat) {
-                    // Repeat the Newton-Raphson iteration
-                    Real T_new = tabs_array(i,j,k);
-                    Real dtabs_new = 1.0;
-                    int niter_new = 0;
-                    Real tol_new = 1.0e-4;
 
-                    while (std::abs(dtabs_new) > tol_new && niter_new < 20) {
-                        Real omn_new = (T_new >= tbgmax) ? 1.0 : ((T_new <= tbgmin) ? 0.0 : (an*T_new - bn));
-                        Real domn_new = (T_new >= tbgmax || T_new <= tbgmin) ? 0.0 : an;
-
-                        evs = calc_saturation_vapor_pressure(T_new, 0);
-                        eis = calc_saturation_vapor_pressure(T_new, 1);
-                        evs = std::min(0.99*pres, evs);
-                        eis = std::min(0.99*pres, eis);
-                        if (eis > evs) eis = evs;
-
-                        qvs = m_ep_2 * evs / (pres - evs);
-                        qvi = m_ep_2 * eis / (pres - eis);
-
-                        Real dum = m_Rv * T_new * T_new;
-                        Real dqsdt = (3.1484e6 - 2370.0 * T_new) * qvs / dum;
-                        Real dqsidt = (3.15e6 - 2370.0 * T_new + 0.3337e6) * qvi / dum;
-
-                        Real qsat_new = omn_new * qvs + (1.0 - omn_new) * qvi;
-                        Real dqsat_new = omn_new * dqsdt + (1.0 - omn_new) * dqsidt + domn_new * (qvs - qvi);
-
-                        Real lsterms_new = omn_new * m_fac_cond + (1.0 - omn_new) * m_fac_sub;
-                        Real dlsterms_new = domn_new * (m_fac_cond - m_fac_sub);
-
-                        Real f_new = -T_new + tabs_array(i,j,k) + lsterms_new * (qv - qsat_new);
-                        Real df_new = -1.0 + dlsterms_new * (qv - qsat_new) - lsterms_new * dqsat_new;
-
-                        dtabs_new = -f_new / df_new;
-                        T_new += dtabs_new;
-                        niter_new++;
-                    }
-
-                    tabs_array(i,j,k) = T_new;
-                    theta_array(i,j,k) = getThgivenPandT(T_new, 100.0*pres, rdOcp);
+                    // Update temperature
+                    tabs_array(i,j,k) = NewtonIterSat(i, j, k   , 2   ,
+                                                      fac_cond  , fac_fus   , fac_sub ,
+                                                      an        , bn        ,
+                                                      tabs_array, pres_array,
+                                                      qv_array  , qc_array  , qi_array,
+                                                      qn_array  , qt_array);
+                    
+                    // Update theta
+                    theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
                 }
             }
 
+#if 0
             // Heterogeneous Freezing
             if (temp < 269.15 && temp > 233.15 && qc >= m_qsmall) {
                 Real n_contact = std::exp(-2.80 + 0.262 * (273.15 - temp)) * 1000.0;
@@ -308,7 +221,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 Real cpm = m_cp * (1.0 + 0.887 * qv);
                 tabs_array(i,j,k) += mnuc_limited * xlf / cpm * dt;
             }
-#if 0
+
             // Primary Ice Nucleation
             if (temp < 273.15) {
                 Real evs = calc_saturation_vapor_pressure(temp, 0);

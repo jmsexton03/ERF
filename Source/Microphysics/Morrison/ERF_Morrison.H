@@ -68,7 +68,7 @@ public:
     // cloud physics
     void Cloud (const SolverChoice& sc);
 
-    void SublimationDeposition(const SolverChoice& sc);
+    void SublimationDeposition (const SolverChoice& sc);
 
     // ice physics
     void IceFall (const SolverChoice& sc);
@@ -126,15 +126,18 @@ public:
     void
     Advance (const amrex::Real& dt_advance,
              const SolverChoice& sc) override;
-    /*    {
+    /*
+    {
         dt = dt_advance;
 
         this->Cloud(sc);
         this->IceFall(sc);
         this->Precip(sc);
         this->PrecipFall(sc);
+
     }
-  */
+    */
+    
     amrex::MultiFab*
     Qmoist_Ptr (const int& varIdx) override
     {
@@ -150,7 +153,7 @@ public:
      * This function updates the state variables based on the tendencies
      * calculated during the microphysics processes.
      */
-    void ApplyTendencies();
+    void ApplyTendencies ();
 
     int
     Qmoist_Size () override { return Morrison::m_qmoist_size; }
@@ -162,6 +165,7 @@ public:
     AMREX_FORCE_INLINE
     static amrex::Real
     NewtonIterSat (int& i, int& j, int& k,
+                   const int& model_type,
                    const amrex::Real& fac_cond,
                    const amrex::Real& fac_fus,
                    const amrex::Real& fac_sub,
@@ -176,7 +180,7 @@ public:
                    const amrex::Array4<amrex::Real>& qt_array)
     {
         // Solution tolerance
-        amrex::Real tol = 1.0e-4;
+        amrex::Real tol = 1.0e-6;
 
         // Saturation moisture fractions
         amrex::Real omn, domn;
@@ -203,7 +207,7 @@ public:
         do {
             // Latent heats and their derivatives wrt to T
             lstarw  = fac_cond;
-            lstari  = fac_fus;
+            lstari  = fac_sub;
             domn    = 0.0;
 
             // Saturation moisture fractions
@@ -212,19 +216,24 @@ public:
             erf_dtqsatw(tabs, pres, dqsatw);
             erf_dtqsati(tabs, pres, dqsati);
 
-            // Cloud ice not permitted (condensation & fusion)
-            if(tabs >= tbgmax) {
-                omn   = 1.0;
-            }
-            // Cloud water not permitted (sublimation & fusion)
-            else if(tabs <= tbgmin) {
-                omn    = 0.0;
-                lstarw = fac_sub;
-            }
-            // Mixed cloud phase (condensation & fusion)
-            else {
-                omn   = an*tabs-bn;
-                domn  = an;
+            if (model_type ==1) {
+                // Cloud ice not permitted (condensation & fusion)
+                if(tabs >= tbgmax) {
+                    omn   = 1.0;
+                }
+                // Cloud water not permitted (sublimation & fusion)
+                else if(tabs <= tbgmin) {
+                    omn    = 0.0;
+                    lstarw = fac_sub;
+                }
+                // Mixed cloud phase (condensation & fusion)
+                else {
+                    omn   = an*tabs-bn;
+                    domn  = an;
+                }
+            } else {
+                omn  = 1.0;
+                domn = 0.0;
             }
 
             // Linear combination of each component
@@ -286,7 +295,7 @@ public:
      *
      * @param[in] sc SolverChoice containing solver configuration
      */
-    void ActivateCloudDroplets(const SolverChoice& sc);
+    void ActivateCloudDroplets (const SolverChoice& sc);
     
     /**
      * Performs water conservation checks for microphysical processes
@@ -297,15 +306,15 @@ public:
      * @param[in] dt_in Timestep (s)
      * @return Scaling factor applied to process rates
      */
-    amrex::Real EnforceWaterConservation(amrex::Vector<amrex::Real>& process_rates,
-                                      const amrex::Real available_water,
-                                      const amrex::Real dt_in);
+    amrex::Real EnforceWaterConservation (amrex::Vector<amrex::Real>& process_rates,
+                                          const amrex::Real available_water,
+                                          const amrex::Real dt_in);
     
     /**
      * Computes radar reflectivity from hydrometeor properties.
      * 
      */
-    void ComputeRadarReflectivity();
+    void ComputeRadarReflectivity ();
 
    /**
      * Calculates supersaturation based on vertical velocity
@@ -316,10 +325,10 @@ public:
      * @param[in] qv Water vapor mixing ratio (kg/kg)
      * @return Supersaturation ratio (0-1)
      */
-    amrex::Real calculateSupersaturation(const amrex::Real w, 
-                                      const amrex::Real T, 
-                                      const amrex::Real P, 
-                                      const amrex::Real qv) const;
+    amrex::Real calculateSupersaturation (const amrex::Real w, 
+                                          const amrex::Real T, 
+                                          const amrex::Real P, 
+                                          const amrex::Real qv) const;
     
     /**
      * Calculates the error function for CCN activation
@@ -327,7 +336,7 @@ public:
      * @param[in] x Input value for error function
      * @return Error function value
      */
-    amrex::Real ErrorFunction(const amrex::Real x) const;
+    amrex::Real ErrorFunction (const amrex::Real x) const;
     
     /**
      * Calculates the complementary error function (1-erf)
@@ -335,7 +344,7 @@ public:
      * @param[in] x Input value
      * @return Complementary error function value
      */
-    amrex::Real ComplementaryErrorFunction(const amrex::Real x) const;
+    amrex::Real ComplementaryErrorFunction (const amrex::Real x) const;
 
 private:
     // Number of qmoist variables (qt, qv, qcl, qci, qp, qpr, qps, qpg)
@@ -628,21 +637,21 @@ private:
      * @param[in] hostmatrixstring Host-matrix material string (e.g., "icewater")
      * @param[in] hostinclusionstring Host-inclusion material string (e.g., "spheroidal")
      */
-    void rayleigh_soak_wetgraupel(const amrex::Real x,
-                                  const amrex::Real xocm,
-                                  const amrex::Real xobm,
-                                  const amrex::Real fmelt,
-                                  const bool melt_outside,
-                                  const std::complex<amrex::Real>& m_w_0,
-                                  const std::complex<amrex::Real>& m_i_0,
-                                  const amrex::Real lambda_radar,
-                                  amrex::Real& cback,
-                                  const std::string& mixingrulestring,
-                                  const std::string& matrixstring,
-                                  const std::string& inclusionstring,
-                                  const std::string& hoststring,
-                                  const std::string& hostmatrixstring,
-                                  const std::string& hostinclusionstring) const;
+    void rayleigh_soak_wetgraupel (const amrex::Real x,
+                                   const amrex::Real xocm,
+                                   const amrex::Real xobm,
+                                   const amrex::Real fmelt,
+                                   const bool melt_outside,
+                                   const std::complex<amrex::Real>& m_w_0,
+                                   const std::complex<amrex::Real>& m_i_0,
+                                   const amrex::Real lambda_radar,
+                                   amrex::Real& cback,
+                                   const std::string& mixingrulestring,
+                                   const std::string& matrixstring,
+                                   const std::string& inclusionstring,
+                                   const std::string& hoststring,
+                                   const std::string& hostmatrixstring,
+                                   const std::string& hostinclusionstring) const;
   /**
    * Helper function to calculate saturation vapor pressure for water or ice.
    * This corresponds to the POLYSVP function in the Fortran code (line ~5580).
@@ -652,31 +661,32 @@ private:
    * @return Saturation vapor pressure in Pascals
    */
   amrex::Real
-  calc_saturation_vapor_pressure(const amrex::Real T, const int type) const
+  calc_saturation_vapor_pressure (const amrex::Real T, const int type) const
   {
     amrex::Real polysvp = 0.0;
-    amrex::Real dt = T - 273.15;  // Convert to Celsius
+    amrex::Real del_T = T - 273.15;  // Convert to Celsius
 
     if (type == 1) {  // Ice (lines ~5631-5644)
-      if (T >= 195.8) {
-        // Flatau et al. formula for ice
-        const amrex::Real a0i = 6.11147274;
-        const amrex::Real a1i = 0.503160820;
-        const amrex::Real a2i = 0.188439774e-1;
-        const amrex::Real a3i = 0.420895665e-3;
-        const amrex::Real a4i = 0.615021634e-5;
-        const amrex::Real a5i = 0.602588177e-7;
-        const amrex::Real a6i = 0.385852041e-9;
-        const amrex::Real a7i = 0.146898966e-11;
-        const amrex::Real a8i = 0.252751365e-14;
+        if (T >= 195.8) {
+            // Flatau et al. formula for ice
+            const amrex::Real a0i = 6.11147274;
+            const amrex::Real a1i = 0.503160820;
+            const amrex::Real a2i = 0.188439774e-1;
+            const amrex::Real a3i = 0.420895665e-3;
+            const amrex::Real a4i = 0.615021634e-5;
+            const amrex::Real a5i = 0.602588177e-7;
+            const amrex::Real a6i = 0.385852041e-9;
+            const amrex::Real a7i = 0.146898966e-11;
+            const amrex::Real a8i = 0.252751365e-14;
             
-        polysvp = a0i + dt*(a1i + dt*(a2i + dt*(a3i + dt*(a4i + dt*(a5i + dt*(a6i + dt*(a7i + a8i*dt)))))));
-        polysvp *= 100.0;  // Convert from hPa to Pa
-      } else {
-        // Goff-Gratch formula for ice at cold temperatures
-        polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
-                                  0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
-      }
+            polysvp = a0i + del_T*(a1i + del_T*(a2i + del_T*(a3i + del_T*(a4i + del_T*(a5i + del_T*(a6i + del_T*(a7i + a8i*del_T)))))));
+            polysvp *= 100.0;  // Convert from hPa to Pa
+        } else {
+            // Goff-Gratch formula for ice at cold temperatures
+            polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
+                                      0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
+            polysvp = 0.0; 
+        } // T
     } else {  // Water (lines ~5648-5665)
       if (T >= 202.0) {
         // Flatau et al. formula for liquid water
@@ -690,7 +700,7 @@ private:
         const amrex::Real a7 = -0.952447341e-13;
         const amrex::Real a8 = -0.976195544e-15;
            
-        polysvp = a0 + dt*(a1 + dt*(a2 + dt*(a3 + dt*(a4 + dt*(a5 + dt*(a6 + dt*(a7 + a8*dt)))))));
+        polysvp = a0 + del_T*(a1 + del_T*(a2 + del_T*(a3 + del_T*(a4 + del_T*(a5 + del_T*(a6 + del_T*(a7 + a8*del_T)))))));
         polysvp *= 100.0;  // Convert from hPa to Pa
       } else {
         // Goff-Gratch formula for water at cold temperatures

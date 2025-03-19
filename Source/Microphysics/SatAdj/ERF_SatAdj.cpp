@@ -35,6 +35,13 @@ void SatAdj::AdvanceSatAdj (const SolverChoice& /*solverChoice*/)
             // There is enough moisutre to drive to equilibrium
             if ((qv_array(i,j,k)+qc_array(i,j,k)) > qsat) {
 
+                if (i==100 && j==2) {
+                    Print() << "Start: " << IntVect(i,j,k) << ' '
+                            << qv_array(i,j,k) << ' '
+                            << qc_array(i,j,k) << ' '
+                            << qsat << ' '
+                            << theta_array(i,j,k) << "\n";
+                }
                 // Update temperature
                 tabs_array(i,j,k) = NewtonIterSat(i, j, k   ,
                                                   d_fac_cond, tabs_array, pres_array,
@@ -42,6 +49,14 @@ void SatAdj::AdvanceSatAdj (const SolverChoice& /*solverChoice*/)
 
                 // Update theta (constant pressure)
                 theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
+
+                if (i==100 && j==2) {
+                    Print() << "End: " << IntVect(i,j,k) << ' '
+                            << qv_array(i,j,k) << ' '
+                            << qc_array(i,j,k) << ' '
+                            << qsat << ' '
+                            << theta_array(i,j,k) << "\n";
+                }
 
             //
             // We cannot blindly relax to qsat, but we can convert qc/qi -> qv.
