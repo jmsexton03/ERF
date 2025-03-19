@@ -369,7 +369,7 @@ Morrison::Precip(const SolverChoice& sc)
                 nprc = amrex::min(nprc, nc / dt);
                 nprc1 = amrex::min(nprc1, nprc);
             }
-            
+#if 0
             //----------------------------------------------------------------------
             // Q Process: PRACI
             // N Process: NPACR
@@ -534,7 +534,7 @@ Morrison::Precip(const SolverChoice& sc)
                   }
                 }
             }
-            
+#endif
             //----------------------------------------------------------------------
             // Q Process: 
             // N Process: 
@@ -550,7 +550,7 @@ Morrison::Precip(const SolverChoice& sc)
                 // Breakup rate (Verlinde and Cotton 1993, modified)
                 nragg = -5.78 * (1.0 - std::exp(-2300.0 * (1.0 / lamr - Dcr))) * nr * qr * rho;
             }
-
+#if 0
             //----------------------------------------------------------------------
             // Q Process: PRCI
             // N Process: NPRCI
@@ -653,7 +653,7 @@ Morrison::Precip(const SolverChoice& sc)
                     psacws -= pgsacw;
                 }
             }
-
+#endif
             //----------------------------------------------------------------------
             // Q Process: 
             // N Process: 
@@ -711,7 +711,7 @@ Morrison::Precip(const SolverChoice& sc)
                     niacrs *= ratio;
                 }
             }
-
+#if 0
             // Cloud ice conservation
             {
                 // Calculate total sink for cloud ice
@@ -766,6 +766,7 @@ Morrison::Precip(const SolverChoice& sc)
                     // No direct scaling needed here, as they are derived from mass tendencies
                 }
             }
+
             //----------------------------------------------------------------------
             // Q Process: PRE
             // N Process: NSUBR
@@ -858,7 +859,7 @@ Morrison::Precip(const SolverChoice& sc)
                     tend(i,j,k,t_comp) -= pgmlt_accel * xlf / cpm;
                 }
             }           
-
+#endif
             //----------------------------------------------------------------------
             // Q Process: 
             // N Process: 

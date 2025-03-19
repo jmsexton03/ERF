@@ -82,7 +82,7 @@ Morrison::Advance (const amrex::Real& dt_advance,
     if (m_iliq == 0) {  // Skip if liquid-only mode is active
         IceFall(sc);
     }
-    
+    */
     // 9. PRECIPITATION PROCESSES
     // Autoconversion, collection, evaporation
     Precip(sc);
@@ -90,14 +90,14 @@ Morrison::Advance (const amrex::Real& dt_advance,
     // 10. PRECIPITATION SEDIMENTATION
     // Precipitation sedimentation
     PrecipFall(sc);
-    
+    /*
     // Compute reflectivity if requested
     if (m_do_radar_ref) {
         ComputeRadarReflectivity();
     }
-
+    */
    // Apply accumulated tendencies to state variables
-   ApplyTendencies();*/
+   ApplyTendencies();
 }
 
 void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
