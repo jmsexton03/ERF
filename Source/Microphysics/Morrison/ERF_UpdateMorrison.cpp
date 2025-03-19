@@ -95,9 +95,9 @@ Morrison::Advance (const amrex::Real& dt_advance,
     if (m_do_radar_ref) {
         ComputeRadarReflectivity();
     }
-    */
+
    // Apply accumulated tendencies to state variables
-   ApplyTendencies();
+   ApplyTendencies();*/
 }
 
 void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,

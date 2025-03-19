@@ -1,5 +1,6 @@
 #include "ERF_Morrison.H"
 #include "ERF_Constants.H"
+#include "ERF_EOS.H"
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_MultiFabUtil.H>
 #include <cmath>
@@ -111,6 +112,7 @@ Morrison::Precip(const SolverChoice& sc)
     
     // Mass of individual splinters (kg)
     const amrex::Real mmult = 4.0/3.0 * M_PI * m_rhoi * std::pow(5.0e-6, 3);
+    amrex::Real rdOcp    = m_rdOcp;
 
     // Loop through grids
     for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
@@ -131,8 +133,11 @@ Morrison::Precip(const SolverChoice& sc)
         auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
         auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
         auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
-        auto const& tend = m_tend->array(mfi);
-        
+        auto const& qn_array = mic_fab_vars[MicVar_Morr::qn]->array(mfi);
+        auto const& qt_array = mic_fab_vars[MicVar_Morr::qt]->array(mfi);
+        auto const& qp_array = mic_fab_vars[MicVar_Morr::qp]->array(mfi);
+        auto const& theta_array = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
+
         // Component indices for thermodynamic variables
         const int t_comp = 0;   // Temperature
         const int p_comp = 1;   // Pressure
@@ -153,14 +158,14 @@ Morrison::Precip(const SolverChoice& sc)
         
         // Parallel execution over the box
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-        // Variables for storing process rates
-        amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
-        amrex::Real pracs, npracs, psacwg, pracg, npracg, pgsacw, pgracs;
-        amrex::Real nscng, ngracs, praci, piacr, niacr, piacrs, niacrs, pracis;
-        amrex::Real pre, prds, prg, evpms, evpmg;
-        amrex::Real nmults, nmultr, qmults, qmultr;
-        amrex::Real nmultg, nmultrg, qmultg, qmultrg;
-        amrex::Real pccn; // CCN activation rate
+            // Variables for storing process rates
+            amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
+            amrex::Real pracs, npracs, psacwg, pracg, npracg, pgsacw, pgracs;
+            amrex::Real nscng, ngracs, praci, piacr, niacr, piacrs, niacrs, pracis;
+            amrex::Real pre, prds, prg, evpms, evpmg;
+            amrex::Real nmults, nmultr, qmults, qmultr;
+            amrex::Real nmultg, nmultrg, qmultg, qmultrg;
+            amrex::Real pccn; // CCN activation rate
 
             // Get local variables
             const amrex::Real temp = thermo_tabs(i,j,k);
@@ -817,8 +822,9 @@ Morrison::Precip(const SolverChoice& sc)
                     prds += psmlt_accel;  // Add to existing snow deposition/sublimation
                     pre += psmlt_accel; // Add to rain production
 
-                    // Apply latent cooling
-                    tend(i,j,k,t_comp) -= psmlt_accel * xlf / cpm;
+                    // Apply latent cooling directly to temperature
+                    thermo_tabs(i,j,k) -= psmlt_accel * xlf / cpm * dt;
+
                 }
 
                 //------------------------------------------------------------------
@@ -856,7 +862,7 @@ Morrison::Precip(const SolverChoice& sc)
                     pre += pgmlt_accel; // Add to rain
 
                     // Apply latent cooling
-                    tend(i,j,k,t_comp) -= pgmlt_accel * xlf / cpm;
+                    thermo_tabs(i,j,k) -= pgmlt_accel * xlf / cpm;
                 }
             }           
 #endif
@@ -874,47 +880,95 @@ Morrison::Precip(const SolverChoice& sc)
             const amrex::Real xlf = xxls - xxlv;  // Latent heat of fusion
             const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
             
-            // Update tendencies for each variable
-            //F1995            
+            // Update state variables with computed tendencies
             // Water vapor
-            tend(i,j,k,qv_comp) = -pre - evpms - evpmg;
-            
-            // Temperature 
-            tend(i,j,k,t_comp) = pre * xxlv + (evpms + evpmg) * xxls +
-                                (piacr + piacrs) * xlf - 
-                                (psacws + psacwg + qmults + qmultg) * xlf;
-            
+            hydro_qv(i,j,k) += ( -pre - evpms - evpmg ) * dt;
+            hydro_qv(i,j,k) = amrex::max(hydro_qv(i,j,k), 0.0);
+
+            // Temperature
+            thermo_tabs(i,j,k) += ( pre * xxlv + (evpms + evpmg) * xxls +
+                                   (piacr + piacrs) * xlf -
+                                   (psacws + psacwg + qmults + qmultg) * xlf ) * dt;
+
+            // Update potential temperature (theta)
+            theta_array(i,j,k) = getThgivenPandT(
+                    thermo_tabs(i,j,k),  // Updated T
+                    100.0 * thermo_pres(i,j,k),  // Convert pressure to Pascals
+                    rdOcp  // Ratio of R/cp
+		);
+
             // Cloud water
-            tend(i,j,k,qc_comp) = -prc - pra - psacws - psacwg - qmults - qmultg;
-            
+            hydro_qc(i,j,k) += ( -prc - pra - psacws - psacwg - qmults - qmultg ) * dt;
+            hydro_qc(i,j,k) = amrex::max(hydro_qc(i,j,k), 0.0);
+
             // Rain water
-            tend(i,j,k,qr_comp) = pre + prc + pra - pracs - pracg - piacr - piacrs;
-            
+            hydro_qr(i,j,k) += ( pre + prc + pra - pracs - pracg - piacr - piacrs ) * dt;
+            hydro_qr(i,j,k) = amrex::max(hydro_qr(i,j,k), 0.0);
+
             // Cloud ice
-            tend(i,j,k,qi_comp) = prds + qmults + qmultg + qmultr + qmultrg - 
-                                 prci - prai - praci - pracis;
-            
+            hydro_qi(i,j,k) += ( prds + qmults + qmultg + qmultr + qmultrg -
+                                 prci - prai - praci - pracis ) * dt;
+            hydro_qi(i,j,k) = amrex::max(hydro_qi(i,j,k), 0.0);
+
             // Snow
-            tend(i,j,k,qs_comp) = psacws + pracs + prci + prai + pracis + piacrs - psacr;
-            
+            hydro_qs(i,j,k) += ( psacws + pracs + prci + prai + pracis + piacrs - psacr ) * dt;
+            hydro_qs(i,j,k) = amrex::max(hydro_qs(i,j,k), 0.0);
+
             // Graupel
-            tend(i,j,k,qg_comp) = psacwg + pracg + pgsacw + pgracs + praci + piacr + psacr;
-            
+            hydro_qg(i,j,k) += ( psacwg + pracg + pgsacw + pgracs + praci + piacr + psacr ) * dt;
+            hydro_qg(i,j,k) = amrex::max(hydro_qg(i,j,k), 0.0);
+
             // Cloud droplet number
-            tend(i,j,k,nc_comp) = -nprc - npra - npsacws - npsacwg;
-            
+            hydro_nc(i,j,k) += ( -nprc - npra - npsacws - npsacwg ) * dt;
+            hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
+
             // Rain number
-            tend(i,j,k,nr_comp) = nprc1 - npracs - npracg - niacr - niacrs + nragg;
-            
+            hydro_nr(i,j,k) += ( nprc1 - npracs - npracg - niacr - niacrs + nragg ) * dt;
+            hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
+
             // Cloud ice number
-            tend(i,j,k,ni_comp) = nmults + nmultg + nmultr + nmultrg - 
-                                 nprci - nprai - niacr - niacrs;
-            
+            hydro_ni(i,j,k) += ( nmults + nmultg + nmultr + nmultrg -
+                                 nprci - nprai - niacr - niacrs ) * dt;
+            hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
+
             // Snow number
-            tend(i,j,k,ns_comp) = nprci + nprai + niacrs - nscng - ngracs;
-            
+            hydro_ns(i,j,k) += ( nprci + nprai + niacrs - nscng - ngracs ) * dt;
+            hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
+
             // Graupel number
-            tend(i,j,k,ng_comp) = nscng + ngracs + niacr;
+            hydro_ng(i,j,k) += ( nscng + ngracs + niacr ) * dt;
+            hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
+
+            // Update derived quantities
+            qn_array(i,j,k) = hydro_qc(i,j,k) + hydro_qi(i,j,k);
+            qt_array(i,j,k) = hydro_qv(i,j,k) + qn_array(i,j,k);
+            qp_array(i,j,k) = hydro_qr(i,j,k) + hydro_qs(i,j,k) + hydro_qg(i,j,k);
+
+            // Set very small values to zero to avoid numerical issues
+            if (hydro_qc(i,j,k) < m_qsmall) {
+                hydro_qc(i,j,k) = 0.0;
+                hydro_nc(i,j,k) = 0.0;
+            }
+
+            if (hydro_qi(i,j,k) < m_qsmall) {
+                hydro_qi(i,j,k) = 0.0;
+                hydro_ni(i,j,k) = 0.0;
+            }
+
+            if (hydro_qr(i,j,k) < m_qsmall) {
+                hydro_qr(i,j,k) = 0.0;
+                hydro_nr(i,j,k) = 0.0;
+            }
+
+            if (hydro_qs(i,j,k) < m_qsmall) {
+                hydro_qs(i,j,k) = 0.0;
+                hydro_ns(i,j,k) = 0.0;
+            }
+
+            if (hydro_qg(i,j,k) < m_qsmall) {
+                hydro_qg(i,j,k) = 0.0;
+                hydro_ng(i,j,k) = 0.0;
+            }
             /* // No chem quantities needed no idea
             // Update WRF-Chem quantities if needed
             // Record cloud-to-precipitation conversion for chemistry
