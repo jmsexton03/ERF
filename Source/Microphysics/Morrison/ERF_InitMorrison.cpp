@@ -122,13 +122,6 @@ Morrison::Init (const MultiFab& cons_in,
     // Initialize viscosity parameter for contact nucleation
     m_mu = 1.496E-6 * std::pow(293.15, 1.5) / (293.15 + 120.0);
 
-    // Initialize process rates to zero
-    npsacwg = 0.0;
-    prci = 0.0;
-    prai = 0.0;
-    psacr = 0.0;
-    nprci = 0.0;
-    nprai = 0.0;
 }
 
 /**

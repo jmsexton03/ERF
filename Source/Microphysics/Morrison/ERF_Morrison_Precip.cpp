@@ -167,6 +167,12 @@ Morrison::Precip(const SolverChoice& sc)
             amrex::Real nmults, nmultr, qmults, qmultr;
             amrex::Real nmultg, nmultrg, qmultg, qmultrg;
             amrex::Real pccn; // CCN activation rate
+            amrex::Real npsacwg;    // No idea
+            amrex::Real prci;    // No idea
+            amrex::Real prai;    // No idea
+            amrex::Real psacr;    // No idea
+            amrex::Real nprci;    // No idea
+            amrex::Real nprai;    // No idea
 
             // Get local variables
             const amrex::Real temp = thermo_tabs(i,j,k);
@@ -193,7 +199,8 @@ Morrison::Precip(const SolverChoice& sc)
             pre = 0.0; prds = 0.0; prg = 0.0; evpms = 0.0; evpmg = 0.0;
             nmults = 0.0; nmultr = 0.0; qmults = 0.0; qmultr = 0.0;
             nmultg = 0.0; nmultrg = 0.0; qmultg = 0.0; qmultrg = 0.0;
-            pccn = 0.0;
+            pccn = 0.0; npsacwg = 0.0; prci = 0.0; prai = 0.0; psacr = 0.0;
+            nprci = 0.0; nprai = 0.0;
 
             // Calculate size distribution parameters for all hydrometeors
             amrex::Real lamr = 0.0, lams = 0.0, lamg = 0.0, lami = 0.0, lamc = 0.0;
@@ -601,7 +608,6 @@ Morrison::Precip(const SolverChoice& sc)
 #endif
 
 #if 0
-#if 0
             //----------------------------------------------------------------------
             // Q Process: PRCI
             // N Process: NPRCI
@@ -950,7 +956,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Rain water
             hydro_qr(i,j,k) += ( pre + prc + pra - pracs - pracg - piacr - piacrs ) * dt;
             hydro_qr(i,j,k) = amrex::max(hydro_qr(i,j,k), 0.0);
-
+#if 0
             // Cloud ice
             hydro_qi(i,j,k) += ( prds + qmults + qmultg + qmultr + qmultrg -
                                  prci - prai - praci - pracis ) * dt;
@@ -963,8 +969,10 @@ Morrison::Precip(const SolverChoice& sc)
             // Graupel
             hydro_qg(i,j,k) += ( psacwg + pracg + pgsacw + pgracs + praci + piacr + psacr ) * dt;
             hydro_qg(i,j,k) = amrex::max(hydro_qg(i,j,k), 0.0);
-
+#endif
             // Cloud droplet number
+#if 0
+//            printf("%d %d %d\t%24.24g, %24.24g,  %24.24g, %24.24g, %24.24g, %24.24g\n",i,j,k,         hydro_nc(i,j,k) , -nprc ,- npra ,- npsacws ,- npsacwg , dt);
             hydro_nc(i,j,k) += ( -nprc - npra - npsacws - npsacwg ) * dt;
             hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
 

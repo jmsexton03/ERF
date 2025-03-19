@@ -723,12 +723,6 @@ private:
     amrex::Real m_a_w;    // Coefficient A for activation (m^3/2 kg^1/2)
     amrex::Real m_r_v;    // No idea
     amrex::Real m_mu;    // No idea
-    amrex::Real npsacwg;    // No idea
-    amrex::Real prci;    // No idea
-    amrex::Real prai;    // No idea
-    amrex::Real psacr;    // No idea
-    amrex::Real nprci;    // No idea
-    amrex::Real nprai;    // No idea
 
 };
 
