@@ -971,7 +971,7 @@ Morrison::Precip(const SolverChoice& sc)
             hydro_qg(i,j,k) = amrex::max(hydro_qg(i,j,k), 0.0);
 #endif
             // Cloud droplet number
-#if 0
+
 //            printf("%d %d %d\t%24.24g, %24.24g,  %24.24g, %24.24g, %24.24g, %24.24g\n",i,j,k,         hydro_nc(i,j,k) , -nprc ,- npra ,- npsacws ,- npsacwg , dt);
             hydro_nc(i,j,k) += ( -nprc - npra - npsacws - npsacwg ) * dt;
             hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
@@ -979,7 +979,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Rain number
             hydro_nr(i,j,k) += ( nprc1 - npracs - npracg - niacr - niacrs + nragg ) * dt;
             hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
-
+#if 0
             // Cloud ice number
             hydro_ni(i,j,k) += ( nmults + nmultg + nmultr + nmultrg -
                                  nprci - nprai - niacr - niacrs ) * dt;
@@ -992,7 +992,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Graupel number
             hydro_ng(i,j,k) += ( nscng + ngracs + niacr ) * dt;
             hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
-
+#endif
             // Update derived quantities
             qn_array(i,j,k) = hydro_qc(i,j,k) + hydro_qi(i,j,k);
             qt_array(i,j,k) = hydro_qv(i,j,k) + qn_array(i,j,k);
@@ -1028,7 +1028,6 @@ Morrison::Precip(const SolverChoice& sc)
             // Record cloud-to-precipitation conversion for chemistry
             c2prec(i,j,k) = prc + pra + psacws + qmults + psacwg + qmultg;
             */
-#endif
         });
     }
 }
