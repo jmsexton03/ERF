@@ -340,6 +340,41 @@ Morrison::Precip(const SolverChoice& sc)
             }
 #endif
             //----------------------------------------------------------------------
+            // Q Process: 
+            // N Process: 
+            // Process: Self-collection/breakup of rain
+            // Description: Self-collection/breakup of rain
+            // Fraction: Cloud
+            //----------------------------------------------------------------------
+            // self_collection_rain
+            // WRF Line 1819
+            if (qr >= m_qsmall)
+            {
+#ifdef ERF_USE_CAM
+                // Self-collection of rain drops from Beheng(1994)
+                // Simple formulation without breakup consideration
+                nragg = -8.0 * nr * qr * rho;
+#else
+                // Self-collection with breakup model from Verlinde and Cotton (1993)
+                // Modified implementation based on third code block
+                amrex::Real dum1 = 300.0e-6;  // 0.3 mm threshold
+                amrex::Real dum;
+
+                if (1.0/lamr < dum1) {
+                    dum = 1.0;
+                } else {
+                    dum = 2.0 - std::exp(2300.0 * (1.0/lamr - dum1));
+                }
+
+                nragg = -5.78 * dum * nr * qr * rho;
+
+                // Note: This replaces the originally generated formulation (possibly (Verlinde and Cotton 1993, modification))
+                // amrex::Real Dcr = 1.2e-3; // 1.2 mm
+                // nragg = -5.78 * (1.0 - std::exp(-2300.0 * (1.0 / lamr - Dcr))) * nr * qr * rho;
+#endif
+            }
+
+            //----------------------------------------------------------------------
             // Q Process: PRC
             // N Process: NPRC
             // Process: Liquid autoconversion
@@ -564,40 +599,7 @@ Morrison::Precip(const SolverChoice& sc)
                 }
             }
 #endif
-            //----------------------------------------------------------------------
-            // Q Process: 
-            // N Process: 
-            // Process: Self-collection/breakup of rain
-            // Description: Self-collection/breakup of rain
-            // Fraction: Cloud
-            //----------------------------------------------------------------------
-            // self_collection_rain
-            // WRF Line 1819
-            if (qr >= m_qsmall)
-            {
-#ifdef ERF_USE_CAM
-                // Self-collection of rain drops from Beheng(1994)
-                // Simple formulation without breakup consideration
-                nragg = -8.0 * nr * qr * rho;
-#else
-                // Self-collection with breakup model from Verlinde and Cotton (1993)
-                // Modified implementation based on third code block
-                amrex::Real dum1 = 300.0e-6;  // 0.3 mm threshold
-                amrex::Real dum;
 
-                if (1.0/lamr < dum1) {
-                    dum = 1.0;
-                } else {
-                    dum = 2.0 - std::exp(2300.0 * (1.0/lamr - dum1));
-                }
-
-                nragg = -5.78 * dum * nr * qr * rho;
-
-                // Note: This replaces the originally generated formulation (possibly (Verlinde and Cotton 1993, modification))
-                // amrex::Real Dcr = 1.2e-3; // 1.2 mm
-                // nragg = -5.78 * (1.0 - std::exp(-2300.0 * (1.0 / lamr - Dcr))) * nr * qr * rho;
-#endif
-}
 #if 0
 #if 0
             //----------------------------------------------------------------------
