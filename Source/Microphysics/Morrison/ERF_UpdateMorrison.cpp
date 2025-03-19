@@ -86,11 +86,11 @@ Morrison::Advance (const amrex::Real& dt_advance,
     // 9. PRECIPITATION PROCESSES
     // Autoconversion, collection, evaporation
     Precip(sc);
-    
+    /*    
     // 10. PRECIPITATION SEDIMENTATION
     // Precipitation sedimentation
     PrecipFall(sc);
-    /*
+
     // Compute reflectivity if requested
     if (m_do_radar_ref) {
         ComputeRadarReflectivity();
