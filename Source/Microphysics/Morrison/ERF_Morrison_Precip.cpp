@@ -340,32 +340,13 @@ Morrison::Precip(const SolverChoice& sc)
             }
 #endif
             //----------------------------------------------------------------------
-            // Q Process: PRA
-            // N Process: NPRA
-            // Process: Accretion of liquid to rain
-            // Description: Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
-            // Fraction: Cloud
-            //----------------------------------------------------------------------
-            // accrete_cloud_water_rain
-            // WRF Line 2801
-            if (qc >= qsmall && qr >= qsmall) {
-                pra = 67.0 * std::pow((qc * qr), 1.15);
-
-                // Calculate number accretion rate
-                npra = pra / (qc / nc);
-
-                // Limit by available cloud water
-                npra = amrex::min(npra, nc / dt);
-            }
-
-            //----------------------------------------------------------------------
             // Q Process: PRC
             // N Process: NPRC
             // Process: Liquid autoconversion
             // Description: Autoconversion of cloud water to rain (Khairoutdinov and Kogan 2000)
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            // accrete_cloud_water_rain
+            // kk2000_liq_autoconversion
             // WRF Line 2412
             if (qc >= qsmall) {
 #ifdef ERF_USE_CAM
@@ -397,6 +378,26 @@ Morrison::Precip(const SolverChoice& sc)
                 nprc = amrex::min(nprc, nc / dt);
                 nprc1 = amrex::min(nprc1, nprc);
             }
+
+            //----------------------------------------------------------------------
+            // Q Process: PRA
+            // N Process: NPRA
+            // Process: Accretion of liquid to rain
+            // Description: Accretion of cloud water by rain (Khairoutdinov and Kogan 2000)
+            // Fraction: Cloud
+            //----------------------------------------------------------------------
+            // accrete_cloud_water_rain
+            // WRF Line 2801
+            if (qc >= qsmall && qr >= qsmall) {
+                pra = 67.0 * std::pow((qc * qr), 1.15);
+
+                // Calculate number accretion rate
+                npra = pra / (qc / nc);
+
+                // Limit by available cloud water
+                npra = amrex::min(npra, nc / dt);
+            }
+
 #if 0
 #if 0
             //----------------------------------------------------------------------
