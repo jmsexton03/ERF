@@ -112,6 +112,7 @@ public:
     Update_Micro_Vars (amrex::MultiFab& cons_in) override
     {
         this->Copy_State_to_Micro(cons_in);
+        this->initialize_size_distributions();
         this->Compute_Coefficients();
     }
 
