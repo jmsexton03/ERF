@@ -26,26 +26,40 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
     amrex::Real snow_accum = 0.0;
     amrex::Real graup_accum = 0.0;
 
-    // Loop through the grids
-    for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::qpr]); mfi.isValid(); ++mfi) {
-        const amrex::Box& box = mfi.validbox();
+    // Initialize number concentrations
+    initialize_size_distributions();
 
-        // Get data arrays for hydrometeors
-        auto const& qpr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
-        auto const& qps = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
-        auto const& qpg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-        auto const& rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
-        auto const& tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+
+// Loop through the grids
+for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::qpr]); mfi.isValid(); ++mfi) {
+    const amrex::Box& box = mfi.validbox();
+
+    // Get data arrays for hydrometeors and thermodynamic variables
+    auto const& qpr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+    auto const& qps = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+    auto const& qpg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+    auto const& rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
+    auto const& tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
+    auto const& pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
+    
+    // Get cloud hydrometeor arrays
+    auto const& qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);  // Cloud water mixing ratio
+    auto const& qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);  // Cloud ice mixing ratio
+    auto const& qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);  // Rain water mixing ratio
+    auto const& qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);  // Snow mixing ratio
+    auto const& qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);  // Graupel mixing ratio
+    
+    // Get number concentration arrays
+    auto const& nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);  // Cloud droplet number concentration
+    auto const& ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);  // Ice number concentration
+    auto const& nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);  // Rain number concentration
+    auto const& ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);  // Snow number concentration
+    auto const& ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);  // Graupel number concentration
 
         // Get arrays for accumulated precipitation
         auto const& rain_arr = mic_fab_vars[MicVar_Morr::rain_accum]->array(mfi);
         auto const& snow_arr = mic_fab_vars[MicVar_Morr::snow_accum]->array(mfi);
         auto const& graup_arr = mic_fab_vars[MicVar_Morr::graup_accum]->array(mfi);
-
-        // Create temporary arrays for number concentrations and fluxes
-        amrex::FArrayBox nr_fab(box, 1); // Rain number concentration
-        amrex::FArrayBox ns_fab(box, 1); // Snow number concentration
-        amrex::FArrayBox ng_fab(box, 1); // Graupel number concentration
 
         amrex::FArrayBox flux_qr_fab(box, 1); // Rain mass flux
         amrex::FArrayBox flux_qs_fab(box, 1); // Snow mass flux
@@ -54,10 +68,6 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         amrex::FArrayBox flux_ns_fab(box, 1); // Snow number flux
         amrex::FArrayBox flux_ng_fab(box, 1); // Graupel number flux
 
-        auto const& nr = nr_fab.array();
-        auto const& ns = ns_fab.array();
-        auto const& ng = ng_fab.array();
-
         auto const& flux_qr = flux_qr_fab.array();
         auto const& flux_qs = flux_qs_fab.array();
         auto const& flux_qg = flux_qg_fab.array();
@@ -65,93 +75,56 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         auto const& flux_ns = flux_ns_fab.array();
         auto const& flux_ng = flux_ng_fab.array();
 
-        // Initialize number concentrations
-        // In a full implementation, these would come from state variables
-        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Placeholder number concentrations based on mixing ratios
-            // and typical mean sizes - these would be properly stored and
-            // retrieved in a complete implementation
-
-            // Rain number concentration
-            if (qpr(i,j,k) > m_qsmall) {
-                // Assuming typical raindrop diameter of ~1 mm
-                const amrex::Real typical_mass_r = 4.0/3.0 *m_pi* m_rhow * std::pow(0.5e-3, 3);
-                nr(i,j,k) = qpr(i,j,k) / typical_mass_r;
-            } else {
-                nr(i,j,k) = 0.0;
-            }
-
-            // Snow number concentration
-            if (qps(i,j,k) > m_qsmall) {
-                // Assuming typical snow diameter of ~2 mm
-                const amrex::Real typical_mass_s = 4.0/3.0 *m_pi* m_rhosn * std::pow(1.0e-3, 3);
-                ns(i,j,k) = qps(i,j,k) / typical_mass_s;
-            } else {
-                ns(i,j,k) = 0.0;
-            }
-
-            // Graupel number concentration
-            if (qpg(i,j,k) > m_qsmall) {
-                // Assuming typical graupel diameter of ~3 mm
-                const amrex::Real typical_mass_g = 4.0/3.0 *m_pi* m_rhog * std::pow(1.5e-3, 3);
-                ng(i,j,k) = qpg(i,j,k) / typical_mass_g;
-            } else {
-                ng(i,j,k) = 0.0;
-            }
-        });
-
         //----------------------------------------------------------------------
         // Calculate maximum fall speeds for all precipitation species
         //----------------------------------------------------------------------
         amrex::Real max_fall_speed = 0.0;
 
-        for (int k = klo; k <= khi; ++k) {
+	 for (int k = klo; k <= khi; ++k) {
             for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
                 for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+ 
+		  // Calculate size distribution parameters for all hydrometeors
+		  amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
+		  amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
+
+                  // Calculate size distribution parameters
+                  size_distributions_params(
+                      qc(i,j,k), qi(i,j,k), qr(i,j,k), qs(i,j,k), qg(i,j,k),
+                      nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
+                      rho(i,j,k), tabs(i,j,k), pres(i,j,k),
+                      lamc, lamr, lami, lams, lamg,
+                      n0c, n0r, n0i, n0s, n0g);
+
                     // Rain fall speed
                     if (qpr(i,j,k) > m_qsmall) {
-                        // Calculate lambda parameter for rain (line ~3692)
-                        const amrex::Real lamr = std::pow(m_pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
-
-                        // Limit lambda to physical range
-                        const amrex::Real lamr_limited = std::max(std::min(lamr, m_lammaxr), m_lamminr);
 
                         // Calculate density-corrected fall speed (line ~3708-3709)
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         const amrex::Real fall_speed_r = air_density_factor * m_ar * m_cons4 /
-                                                      std::pow(lamr_limited, m_br);
+                                                      std::pow(lamr, m_br);
 
                         max_fall_speed = std::max(max_fall_speed, fall_speed_r);
                     }
 
                     // Snow fall speed
                     if (qps(i,j,k) > m_qsmall) {
-                        // Calculate lambda parameter for snow (line ~3782)
-                        const amrex::Real lams = std::pow(m_cons1 * ns(i,j,k) / qps(i,j,k), 1.0/m_ds);
-
-                        // Limit lambda to physical range
-                        const amrex::Real lams_limited = std::max(std::min(lams, m_lammaxs), m_lammins);
 
                         // Calculate density-corrected fall speed
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         const amrex::Real fall_speed_s = air_density_factor * m_as * m_cons3 /
-                                                      std::pow(lams_limited, m_bs);
+                                                      std::pow(lams, m_bs);
 
                         max_fall_speed = std::max(max_fall_speed, fall_speed_s);
                     }
 
                     // Graupel fall speed
                     if (qpg(i,j,k) > m_qsmall) {
-                        // Calculate lambda parameter for graupel
-                        const amrex::Real lamg = std::pow(m_cons2 * ng(i,j,k) / qpg(i,j,k), 1.0/m_dg);
-
-                        // Limit lambda to physical range
-                        const amrex::Real lamg_limited = std::max(std::min(lamg, m_lammaxg), m_lamming);
 
                         // Calculate density-corrected fall speed
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         const amrex::Real fall_speed_g = air_density_factor * m_ag * m_cons7 /
-                                                      std::pow(lamg_limited, m_bg);
+                                                      std::pow(lamg, m_bg);
 
                         max_fall_speed = std::max(max_fall_speed, fall_speed_g);
                     }
@@ -199,16 +172,21 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     const int k = k_local + klo;  // Adjust k to global index
 
                     if (k < khi) {  // Skip the top boundary
+		      // Calculate size distribution parameters for all hydrometeors
+		      amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
+		      amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
+
+		      // Calculate size distribution parameters
+		      size_distributions_params(
+                    qc(i,j,k), qi(i,j,k), qr(i,j,k), qs(i,j,k), qg(i,j,k),
+                    nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
+                    rho(i,j,k), tabs(i,j,k), pres(i,j,k),
+						lamc, lamr, lami, lams, lamg,
+						n0c, n0r, n0i, n0s, n0g);		      
                         //--------------------------------------------------------------
                         // Rain fallout
                         //--------------------------------------------------------------
                         if (qpr(i,j,k) > m_qsmall) {
-                            // Calculate size distribution parameters
-                            amrex::Real lamr = std::pow(m_pi * m_rhow * nr(i,j,k) / qpr(i,j,k), 1.0/3.0);
-
-                            // Apply limits to lambda
-                            lamr = std::max(lamr, m_lamminr);
-                            lamr = std::min(lamr, m_lammaxr);
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
@@ -228,12 +206,6 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         // Snow fallout
                         //--------------------------------------------------------------
                         if (qps(i,j,k) > m_qsmall) {
-                            // Calculate size distribution parameters
-                            amrex::Real lams = std::pow(m_cons1 * ns(i,j,k) / qps(i,j,k), 1.0/m_ds);
-
-                            // Apply limits to lambda
-                            lams = std::max(lams, m_lammins);
-                            lams = std::min(lams, m_lammaxs);
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
@@ -253,12 +225,6 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         // Graupel fallout
                         //--------------------------------------------------------------
                         if (qpg(i,j,k) > m_qsmall) {
-                            // Calculate size distribution parameters
-                            amrex::Real lamg = std::pow(m_cons2 * ng(i,j,k) / qpg(i,j,k), 1.0/m_dg);
-
-                            // Apply limits to lambda
-                            lamg = std::max(lamg, m_lamming);
-                            lamg = std::min(lamg, m_lammaxg);
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
