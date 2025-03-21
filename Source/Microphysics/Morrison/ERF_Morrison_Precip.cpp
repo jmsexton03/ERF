@@ -189,7 +189,7 @@ Morrison::Precip(const SolverChoice& sc)
             const amrex::Real nr = hydro_nr(i,j,k);
             const amrex::Real ns = hydro_ns(i,j,k);
             const amrex::Real ng = hydro_ng(i,j,k);
-            
+
             // Initialize process rates to zero
             prc = 0.0; nprc = 0.0; nprc1 = 0.0; pra = 0.0; npra = 0.0; nragg = 0.0;
             psacws = 0.0; npsacws = 0.0; pracs = 0.0; npracs = 0.0;
@@ -203,10 +203,19 @@ Morrison::Precip(const SolverChoice& sc)
             nprci = 0.0; nprai = 0.0;
 
             // Calculate size distribution parameters for all hydrometeors
-            amrex::Real lamr = 0.0, lams = 0.0, lamg = 0.0, lami = 0.0, lamc = 0.0;
-            amrex::Real n0r = 0.0, n0s = 0.0, n0g = 0.0, n0i = 0.0;
-            amrex::Real pgam = 0.0;
-            
+            amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
+            amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
+
+            // Calculate size distribution parameters
+            size_distributions_params(
+                                      qc, qi, qr, qs, qg,
+                                      nc, ni, nr, ns, ng,
+                                      rho, temp, pres,
+                                      m_pi, m_rhow, m_rhoi, m_rhosn, m_rhog,
+                                      m_qsmall, m_inum, m_ndcnst, m_dcs,
+                                      lamc, lamr, lami, lams, lamg,
+                                      n0c, n0r, n0i, n0s, n0g);
+
             // Rain distribution
             if (qr >= m_qsmall) {
                 lamr = std::pow(M_PI * m_rhow * nr / qr, 1.0/3.0);
@@ -840,7 +849,7 @@ Morrison::Precip(const SolverChoice& sc)
                 const amrex::Real xlf = xxls - xxlv;  // Latent heat of fusion
                 const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
 
-	        //------------------------------------------------------------------
+                //------------------------------------------------------------------
                 // 14a. Accelerated Melting of Snow
                 //------------------------------------------------------------------
                 if (qs >= m_qsmall && qr >= m_qsmall) {
@@ -948,7 +957,7 @@ Morrison::Precip(const SolverChoice& sc)
                     thermo_tabs(i,j,k),  // Updated T
                     100.0 * thermo_pres(i,j,k),  // Convert pressure to Pascals
                     rdOcp  // Ratio of R/cp
-		);
+                );
 
             // Cloud water
             hydro_qc(i,j,k) += ( -prc - pra - psacws - psacwg - qmults - qmultg ) * dt;
