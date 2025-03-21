@@ -468,80 +468,280 @@ Morrison::initialize_size_distributions ()
 #endif
     for (MFIter mfi(*mic_fab_vars[MicVar_Morr::qcl]); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
-        
+
         // Get array accessors
         auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
         auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
         auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
         auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
         auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-        
+
         auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
         auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
         auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
         auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
         auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
-        
+
         auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto const& thermo_temp = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
-        
+        auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
+
         // Initialize size distribution parameters
-        amrex::ParallelFor(box,
-        [=] AMREX_GPU_DEVICE (int i, int j, int k)
+        amrex::ParallelFor( box, [=] AMREX_GPU_DEVICE (int i, int j, int k)
         {
             // Get density for this cell
             Real rho = thermo_rho(i,j,k);
             Real temp = thermo_temp(i,j,k);
-            
+            Real pres = thermo_pres(i,j,k);
+
             // Set constant droplet number concentration if specified
             if (m_inum == 1) {
-                hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
+              hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
             }
-            
-            // Initialize hydrometeor number concentrations based on mixing ratios
-            // These are approximate initializations that will be refined during the first timestep
-            
-            // Cloud droplets - if not using constant number
-            if (m_inum == 0 && hydro_qc(i,j,k) > m_qsmall) {
-                // Assume mean diameter of 10 microns for initialization
-                Real mean_mass = m_pi/6.0 * m_rhow * std::pow(10.0e-6, 3);
-                hydro_nc(i,j,k) = hydro_qc(i,j,k) / mean_mass;
+
+            // Make sure number concentrations are positive
+            hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
+            hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
+            hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
+            hydro_ns(i,j,k) = amrex::max(hydro_ns(i,j,k), 0.0);
+            hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
+
+#ifdef ERF_USE_CAM
+            // ========================================================================
+            // CAM APPROACH FOR ALL HYDROMETEORS
+            // ========================================================================
+
+            // Cloud droplets
+            if (hydro_qc(i,j,k) > m_qsmall) {
+              // Get pgam from fit to observations of Martin et al. 1994
+              Real pgam = 1.0 - 0.7 * exp(-0.008 * 1.e-6 * hydro_nc(i,j,k) * rho);
+              pgam = 1.0/(pgam*pgam) - 1.0;
+              pgam = amrex::max(pgam, 2.0);
+
+              // Calculate shape coefficient
+              Real shape_coef = m_pi/6.0 * m_rhow * (pgam+1.0) * (pgam+2.0) * (pgam+3.0);
+
+              // Lambda bounds (limits to between 2 and 50 microns mean size)
+              Real lambda_min = (pgam+1.0)/50.0e-6;
+              Real lambda_max = (pgam+1.0)/2.0e-6;
+
+              // Calculate lambda parameter (c*n/q)^(1/d)
+              Real lambda_c = pow(shape_coef * hydro_nc(i,j,k)/hydro_qc(i,j,k), 1.0/3.0);
+
+              // Check for slope and adjust vars
+              if (lambda_c < lambda_min) {
+                lambda_c = lambda_min;
+                hydro_nc(i,j,k) = pow(lambda_c, 3.0) * hydro_qc(i,j,k)/shape_coef;
+              } else if (lambda_c > lambda_max) {
+                lambda_c = lambda_max;
+                hydro_nc(i,j,k) = pow(lambda_c, 3.0) * hydro_qc(i,j,k)/shape_coef;
+              }
             }
-            
+
             // Cloud ice
             if (hydro_qi(i,j,k) > m_qsmall) {
-                // Use initial mass for ice crystals
-                hydro_ni(i,j,k) = hydro_qi(i,j,k) / m_mi0;
+              // CAM approach - using standard lambda bounds
+              Real lambda_min = 1.0/500.0e-6;  // CAM standard bound
+              Real lambda_max = 1.0/10.0e-6;   // CAM standard bound
+
+              Real shape_coef = m_pi/6.0 * m_rhoi;
+              Real lambda_i = pow(shape_coef * hydro_ni(i,j,k)/hydro_qi(i,j,k), 1.0/3.0);
+
+              if (lambda_i < lambda_min) {
+                lambda_i = lambda_min;
+                hydro_ni(i,j,k) = pow(lambda_i, 3.0) * hydro_qi(i,j,k)/shape_coef;
+              } else if (lambda_i > lambda_max) {
+                lambda_i = lambda_max;
+                hydro_ni(i,j,k) = pow(lambda_i, 3.0) * hydro_qi(i,j,k)/shape_coef;
+              }
             }
-            
+
             // Rain
             if (hydro_qr(i,j,k) > m_qsmall) {
-                // Use Marshall-Palmer distribution with N0 = 8e6 m^-4
-                Real n0r = 8.0e6; // m^-4
-                Real lambda_r = std::pow(m_pi * m_rhow * n0r / (rho * hydro_qr(i,j,k)), 0.25);
-                lambda_r = std::min(std::max(lambda_r, m_lamminr), m_lammaxr);
-                hydro_nr(i,j,k) = n0r / lambda_r;
+              // CAM approach - using standard lambda bounds
+              Real lambda_min = 1.0/500.0e-6;  // CAM standard bound
+              Real lambda_max = 1.0/20.0e-6;   // CAM standard bound
+
+              Real shape_coef = m_pi/6.0 * m_rhow;
+              Real lambda_r = pow(shape_coef * hydro_nr(i,j,k)/hydro_qr(i,j,k), 1.0/3.0);
+
+              if (lambda_r < lambda_min) {
+                lambda_r = lambda_min;
+                hydro_nr(i,j,k) = pow(lambda_r, 3.0) * hydro_qr(i,j,k)/shape_coef;
+              } else if (lambda_r > lambda_max) {
+                lambda_r = lambda_max;
+                hydro_nr(i,j,k) = pow(lambda_r, 3.0) * hydro_qr(i,j,k)/shape_coef;
+              }
             }
-            
+
             // Snow
             if (hydro_qs(i,j,k) > m_qsmall) {
-                // Use exponential distribution with N0 = 3e6 m^-4
-                Real n0s = 3.0e6; // m^-4
-                Real lambda_s = std::pow(m_pi * m_rhosn * n0s / (rho * hydro_qs(i,j,k) * m_cons1), 0.25);
-                lambda_s = std::min(std::max(lambda_s, m_lammins), m_lammaxs);
-                hydro_ns(i,j,k) = n0s / lambda_s;
+              // CAM approach - using standard lambda bounds
+              Real lambda_min = 1.0/1000.0e-6;  // CAM standard bound
+              Real lambda_max = 1.0/10.0e-6;    // CAM standard bound
+
+              Real shape_coef = m_pi/6.0 * m_rhosn;
+              Real lambda_s = pow(shape_coef * hydro_ns(i,j,k)/hydro_qs(i,j,k), 1.0/3.0);
+
+              if (lambda_s < lambda_min) {
+                lambda_s = lambda_min;
+                hydro_ns(i,j,k) = pow(lambda_s, 3.0) * hydro_qs(i,j,k)/shape_coef;
+              } else if (lambda_s > lambda_max) {
+                lambda_s = lambda_max;
+                hydro_ns(i,j,k) = pow(lambda_s, 3.0) * hydro_qs(i,j,k)/shape_coef;
+              }
             }
-            
+
             // Graupel
             if (hydro_qg(i,j,k) > m_qsmall) {
-                // Use exponential distribution with N0 = 4e6 m^-4
-                Real n0g = 4.0e6; // m^-4
-                Real lambda_g = std::pow(m_pi * m_rhog * n0g / (rho * hydro_qg(i,j,k) * m_cons2), 0.25);
-                lambda_g = std::min(std::max(lambda_g, m_lamming), m_lammaxg);
-                hydro_ng(i,j,k) = n0g / lambda_g;
+              // CAM approach - using standard lambda bounds
+              Real lambda_min = 1.0/1000.0e-6;  // CAM standard bound
+              Real lambda_max = 1.0/10.0e-6;    // CAM standard bound
+
+              Real shape_coef = m_pi/6.0 * m_rhog;
+              Real lambda_g = pow(shape_coef * hydro_ng(i,j,k)/hydro_qg(i,j,k), 1.0/3.0);
+
+              if (lambda_g < lambda_min) {
+                lambda_g = lambda_min;
+                hydro_ng(i,j,k) = pow(lambda_g, 3.0) * hydro_qg(i,j,k)/shape_coef;
+              } else if (lambda_g > lambda_max) {
+                lambda_g = lambda_max;
+                hydro_ng(i,j,k) = pow(lambda_g, 3.0) * hydro_qg(i,j,k)/shape_coef;
+              }
             }
-            
-            // Make sure number concentrations are positive
+
+#else
+            // ========================================================================
+            // USING WRF APPROACH FOR ALL HYDROMETEORS
+            // ========================================================================
+
+            // Cloud droplets
+            if (hydro_qc(i,j,k) > m_qsmall && m_inum == 0) {
+              // Calculate air density factor (moist air density)
+              Real dum = pres/(287.15*temp);
+
+              // MARTIN ET AL. (1994) FORMULA FOR PGAM (WRF implementation)
+              Real pgam = 0.0005714*(hydro_nc(i,j,k)/1.0e6*dum) + 0.2714;
+              pgam = 1.0/(pgam*pgam) - 1.0;
+              pgam = amrex::max(pgam, 2.0);
+              pgam = amrex::min(pgam, 10.0);
+
+              // CONS26 equivalent (coefficient for distribution calculation)
+              Real cons26 = m_pi * m_rhow / 6.0;
+
+              // Calculate gamma function values using tgamma from cmath
+              Real gamma_pgam_plus_1 = tgamma(pgam + 1.0);
+              Real gamma_pgam_plus_4 = tgamma(pgam + 4.0);
+
+              // Calculate lambda parameter
+              Real lambda_c = pow((cons26 * hydro_nc(i,j,k) * gamma_pgam_plus_4) /
+                                  (hydro_qc(i,j,k) * gamma_pgam_plus_1), 1.0/3.0);
+
+              // Lambda bounds from WRF - 60 micron max diameter, 1 micron min diameter
+              Real lambda_min = (pgam + 1.0)/60.0e-6;
+              Real lambda_max = (pgam + 1.0)/1.0e-6;
+
+              // Check for slope and adjust vars
+              if (lambda_c < lambda_min) {
+                lambda_c = lambda_min;
+                // Adjust number concentration using WRF formulation
+                hydro_nc(i,j,k) = exp(3.0*log(lambda_c) + log(hydro_qc(i,j,k)) +
+                                      log(gamma_pgam_plus_1) - log(gamma_pgam_plus_4))/cons26;
+              } else if (lambda_c > lambda_max) {
+                lambda_c = lambda_max;
+                // Adjust number concentration using WRF formulation
+                hydro_nc(i,j,k) = exp(3.0*log(lambda_c) + log(hydro_qc(i,j,k)) +
+                                      log(gamma_pgam_plus_1) - log(gamma_pgam_plus_4))/cons26;
+              }
+            }
+
+            // Cloud ice - using bounds from WRF
+            if (hydro_qi(i,j,k) > m_qsmall) {
+              // Calculate lambda parameter
+              Real cons12 = m_pi * m_rhoi / 6.0; // CI constant from WRF
+              Real lambda_i = pow(cons12 * hydro_ni(i,j,k) / hydro_qi(i,j,k), 1.0/3.0);
+
+              // Use lambda limits from WRF
+              Real lammini = 1.0/(2.0*m_dcs + 100.0e-6);  // WRF bound
+              Real lammaxi = 1.0/1.0e-6;                  // WRF bound
+
+              // Check for slope and adjust vars
+              if (lambda_i < lammini) {
+                lambda_i = lammini;
+                Real n0i = pow(lambda_i, 4.0) * hydro_qi(i,j,k) / cons12;
+                hydro_ni(i,j,k) = n0i / lambda_i;
+              } else if (lambda_i > lammaxi) {
+                lambda_i = lammaxi;
+                Real n0i = pow(lambda_i, 4.0) * hydro_qi(i,j,k) / cons12;
+                hydro_ni(i,j,k) = n0i / lambda_i;
+              }
+            }
+
+            // Rain - using bounds from WRF
+            if (hydro_qr(i,j,k) > m_qsmall) {
+              // Calculate lambda parameter
+              Real lambda_r = pow(m_pi * m_rhow * hydro_nr(i,j,k) / hydro_qr(i,j,k), 1.0/3.0);
+
+              // Use lambda limits from WRF
+              Real lamminr = 1.0/2800.0e-6;  // WRF bound
+              Real lammaxr = 1.0/20.0e-6;    // WRF bound
+
+              // Check for slope and adjust vars
+              if (lambda_r < lamminr) {
+                lambda_r = lamminr;
+                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (m_pi * m_rhow);
+                hydro_nr(i,j,k) = n0r / lambda_r;
+              } else if (lambda_r > lammaxr) {
+                lambda_r = lammaxr;
+                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (m_pi * m_rhow);
+                hydro_nr(i,j,k) = n0r / lambda_r;
+              }
+            }
+
+            // Snow - using bounds from WRF
+            if (hydro_qs(i,j,k) > m_qsmall) {
+              // Calculate lambda parameter
+              Real lambda_s = pow(m_pi * m_rhosn * hydro_ns(i,j,k) / hydro_qs(i,j,k), 1.0/3.0);
+
+              // Use lambda limits from WRF
+              Real lammins = 1.0/2000.0e-6;  // WRF bound
+              Real lammaxs = 1.0/10.0e-6;    // WRF bound
+
+              // Check for slope and adjust vars
+              if (lambda_s < lammins) {
+                lambda_s = lammins;
+                Real n0s = pow(lambda_s, 4.0) * hydro_qs(i,j,k) / (m_pi * m_rhosn);
+                hydro_ns(i,j,k) = n0s / lambda_s;
+              } else if (lambda_s > lammaxs) {
+                lambda_s = lammaxs;
+                Real n0s = pow(lambda_s, 4.0) * hydro_qs(i,j,k) / (m_pi * m_rhosn);
+                hydro_ns(i,j,k) = n0s / lambda_s;
+              }
+            }
+
+            // Graupel - using bounds from WRF
+            if (hydro_qg(i,j,k) > m_qsmall) {
+              // Calculate lambda parameter
+              Real lambda_g = pow(m_pi * m_rhog * hydro_ng(i,j,k) / hydro_qg(i,j,k), 1.0/3.0);
+
+              // Use lambda limits from WRF
+              Real lamming = 1.0/2000.0e-6;  // WRF bound
+              Real lammaxg = 1.0/20.0e-6;    // WRF bound
+
+              // Check for slope and adjust vars
+              if (lambda_g < lamming) {
+                lambda_g = lamming;
+                Real n0g = pow(lambda_g, 4.0) * hydro_qg(i,j,k) / (m_pi * m_rhog);
+                hydro_ng(i,j,k) = n0g / lambda_g;
+              } else if (lambda_g > lammaxg) {
+                lambda_g = lammaxg;
+                Real n0g = pow(lambda_g, 4.0) * hydro_qg(i,j,k) / (m_pi * m_rhog);
+                hydro_ng(i,j,k) = n0g / lambda_g;
+              }
+            }
+#endif
+
+            // Make sure number concentrations are positive (final check)
             hydro_nc(i,j,k) = amrex::max(hydro_nc(i,j,k), 0.0);
             hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
             hydro_ni(i,j,k) = amrex::max(hydro_ni(i,j,k), 0.0);
