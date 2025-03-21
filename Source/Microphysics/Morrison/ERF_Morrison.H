@@ -610,15 +610,6 @@ private:
      * @param[in] rho Air density (kg/m^3)
      * @param[in] temp Temperature (K)
      * @param[in] pres Pressure (Pa)
-     * @param[in] pi Value of π constant
-     * @param[in] rhow Density of liquid water (kg/m^3)
-     * @param[in] rhoi Density of ice (kg/m^3)
-     * @param[in] rhosn Density of snow (kg/m^3)
-     * @param[in] rhog Density of graupel (kg/m^3)
-     * @param[in] qsmall Minimum mixing ratio threshold
-     * @param[in] inum Flag for constant droplet number (1=constant, 0=predict)
-     * @param[in] ndcnst Constant droplet number concentration (cm^-3)
-     * @param[in] dcs Cloud ice size parameter
      * @param[out] lambda_c Cloud droplet size distribution slope parameter (m^-1)
      * @param[out] lambda_r Rain drop size distribution slope parameter (m^-1)
      * @param[out] lambda_i Ice crystal size distribution slope parameter (m^-1)
@@ -630,17 +621,17 @@ private:
      * @param[out] n0_s Snow size distribution intercept parameter (m^-4)
      * @param[out] n0_g Graupel size distribution intercept parameter (m^-4)
      */
+    //size_dist_param_*
+    //WRF Line 1525-1639
+    //WRF Line 2122-2268
     AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
     void size_distributions_params(
                                    // Hydrometeor mixing ratios
                                    const amrex::Real qc, const amrex::Real qi, const amrex::Real qr, const amrex::Real qs, const amrex::Real qg,
-                                   // Number concentrations 
+                                   // Number concentrations
                                    const amrex::Real nc, const amrex::Real ni, const amrex::Real nr, const amrex::Real ns, const amrex::Real ng,
                                    // Thermodynamic state
                                    const amrex::Real rho, const amrex::Real temp, const amrex::Real pres,
-                                   // Microphysics constants
-                                   const amrex::Real pi, const amrex::Real rhow, const amrex::Real rhoi, const amrex::Real rhosn, const amrex::Real rhog,
-                                   const amrex::Real qsmall, const int inum, const amrex::Real ndcnst, const amrex::Real dcs,
                                    // Output lambda parameters
                                    amrex::Real &lambda_c, amrex::Real &lambda_r, amrex::Real &lambda_i, amrex::Real &lambda_s, amrex::Real &lambda_g,
                                    // Output intercept parameters
@@ -652,7 +643,7 @@ private:
         lambda_i = 0.0;
         lambda_s = 0.0;
         lambda_g = 0.0;
-    
+
         n0_c = 0.0;
         n0_r = 0.0;
         n0_i = 0.0;
@@ -663,8 +654,8 @@ private:
         amrex::Real nc_local = nc;
 
         // Set constant droplet number concentration if needed (for calculations only)
-        if (inum == 1) {
-          nc_local = ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
+        if (m_inum == 1) {
+          nc_local = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
         }
 
         // Make sure number concentrations are positive for calculations
@@ -680,14 +671,14 @@ private:
         // ========================================================================
 
         // Cloud droplets
-        if (qc > qsmall) {
+        if (qc > m_qsmall) {
           // Get pgam from fit to observations of Martin et al. 1994
           amrex::Real pgam = 1.0 - 0.7 * exp(-0.008 * 1.e-6 * nc_local * rho);
           pgam = 1.0/(pgam*pgam) - 1.0;
           pgam = amrex::max(pgam, 2.0);
 
           // Calculate shape coefficient
-          amrex::Real shape_coef = pi/6.0 * rhow * (pgam+1.0) * (pgam+2.0) * (pgam+3.0);
+          amrex::Real shape_coef = m_pi/6.0 * m_rhow * (pgam+1.0) * (pgam+2.0) * (pgam+3.0);
 
           // Lambda bounds (limits to between 2 and 50 microns mean size)
           amrex::Real lambda_min = (pgam+1.0)/50.0e-6;
@@ -707,12 +698,12 @@ private:
         }
 
         // Cloud ice
-        if (qi > qsmall) {
+        if (qi > m_qsmall) {
           // Lambda bounds from CAM
           amrex::Real lambda_min = 1.0/500.0e-6;  // CAM standard bound
           amrex::Real lambda_max = 1.0/10.0e-6;   // CAM standard bound
 
-          amrex::Real shape_coef = pi/6.0 * rhoi;
+          amrex::Real shape_coef = m_pi/6.0 * m_rhoi;
           lambda_i = pow(shape_coef * ni_local/qi, 1.0/3.0);
 
           // Apply bounds to lambda
@@ -723,12 +714,12 @@ private:
         }
 
         // Rain
-        if (qr > qsmall) {
+        if (qr > m_qsmall) {
           // Lambda bounds from CAM
           amrex::Real lambda_min = 1.0/500.0e-6;  // CAM standard bound
           amrex::Real lambda_max = 1.0/20.0e-6;   // CAM standard bound
 
-          amrex::Real shape_coef = pi/6.0 * rhow;
+          amrex::Real shape_coef = m_pi/6.0 * m_rhow;
           lambda_r = pow(shape_coef * nr_local/qr, 1.0/3.0);
 
           // Apply bounds to lambda
@@ -739,12 +730,12 @@ private:
         }
 
         // Snow
-        if (qs > qsmall) {
+        if (qs > m_qsmall) {
           // Lambda bounds from CAM
           amrex::Real lambda_min = 1.0/1000.0e-6;  // CAM standard bound
           amrex::Real lambda_max = 1.0/10.0e-6;    // CAM standard bound
 
-          amrex::Real shape_coef = pi/6.0 * rhosn;
+          amrex::Real shape_coef = m_pi/6.0 * m_rhosn;
           lambda_s = pow(shape_coef * ns_local/qs, 1.0/3.0);
 
           // Apply bounds to lambda
@@ -755,12 +746,12 @@ private:
         }
 
         // Graupel
-        if (qg > qsmall) {
+        if (qg > m_qsmall) {
           // Lambda bounds from CAM
           amrex::Real lambda_min = 1.0/1000.0e-6;  // CAM standard bound
           amrex::Real lambda_max = 1.0/10.0e-6;    // CAM standard bound
 
-          amrex::Real shape_coef = pi/6.0 * rhog;
+          amrex::Real shape_coef = m_pi/6.0 * m_rhog;
           lambda_g = pow(shape_coef * ng_local/qg, 1.0/3.0);
 
           // Apply bounds to lambda
@@ -776,7 +767,7 @@ private:
         // ========================================================================
 
         // Cloud droplets
-        if (qc > qsmall) {
+        if (qc > m_qsmall) {
           // Calculate air density factor (moist air density)
           amrex::Real dum = pres/(287.15*temp);
 
@@ -786,15 +777,12 @@ private:
           pgam = amrex::max(pgam, 2.0);
           pgam = amrex::min(pgam, 10.0);
 
-          // CONS26 equivalent (coefficient for distribution calculation)
-          amrex::Real cons26 = pi * rhow / 6.0;
-
           // Calculate gamma function values
           amrex::Real gamma_pgam_plus_1 = tgamma(pgam + 1.0);
           amrex::Real gamma_pgam_plus_4 = tgamma(pgam + 4.0);
 
           // Calculate lambda parameter
-          lambda_c = pow((cons26 * nc_local * gamma_pgam_plus_4) / (qc * gamma_pgam_plus_1), 1.0/3.0);
+          lambda_c = pow((m_cons26 * nc_local * gamma_pgam_plus_4) / (qc * gamma_pgam_plus_1), 1.0/3.0);
 
           // Lambda bounds from WRF - 60 micron max diameter, 1 micron min diameter
           amrex::Real lambda_min = (pgam + 1.0)/60.0e-6;
@@ -808,71 +796,63 @@ private:
         }
 
         // Cloud ice
-        if (qi > qsmall) {
+        if (qi > m_qsmall) {
           // Calculate lambda parameter
-          amrex::Real cons12 = pi * rhoi / 6.0; // CI constant from WRF
-          lambda_i = pow(cons12 * ni_local / qi, 1.0/3.0);
-
-          // Lambda bounds from WRF
-          amrex::Real lambda_min = 1.0/(2.0*dcs + 100.0e-6);  // WRF bound
-          amrex::Real lambda_max = 1.0/1.0e-6;                // WRF bound
-
-          // Apply bounds to lambda
-          lambda_i = amrex::max(lambda_min, amrex::min(lambda_i, lambda_max));
-
-          // Calculate intercept parameter using WRF formula
-          n0_i = pow(lambda_i, 4.0) * qi / cons12;
+          lambda_i = pow(m_cons12 * ni_local / qi, 1.0/3.0);
+          
+          // Calculate intercept parameter (initial calculation)
+          n0_i = ni_local * lambda_i;
+          
+          // Check for slope (apply bounds)
+          if (lambda_i < m_lammini) {
+            lambda_i = m_lammini;
+            // Recalculate n0_i when lambda is adjusted
+            n0_i = pow(lambda_i, 4.0) * qi / m_cons12;
+            // Update ni_local (this was missing in the original C++)
+            ni_local = n0_i / lambda_i;
+          } else if (lambda_i > m_lammaxi) {
+            lambda_i = m_lammaxi;
+            // Recalculate n0_i when lambda is adjusted
+            n0_i = pow(lambda_i, 4.0) * qi / m_cons12;
+            // Update ni_local (this was missing in the original C++)
+            ni_local = n0_i / lambda_i;
+          }
         }
 
         // Rain
-        if (qr > qsmall) {
-          // Calculate lambda parameter
-          amrex::Real cons_r = pi * rhow / 6.0;
-          lambda_r = pow(cons_r * nr_local / qr, 1.0/3.0);
-
-          // Lambda bounds from WRF
-          amrex::Real lambda_min = 1.0/2800.0e-6;  // WRF bound
-          amrex::Real lambda_max = 1.0/20.0e-6;    // WRF bound
+        if (qr > m_qsmall) {
+          // Calculate lambda parameter using cons26 (pi*rhow/6)
+          lambda_r = pow(m_cons26 * nr_local / qr, 1.0/3.0);
 
           // Apply bounds to lambda
-          lambda_r = amrex::max(lambda_min, amrex::min(lambda_r, lambda_max));
+          lambda_r = amrex::max(m_lamminr, amrex::min(lambda_r, m_lammaxr));
 
           // Calculate intercept parameter using WRF formula
-          n0_r = pow(lambda_r, 4.0) * qr / cons_r;
+          n0_r = pow(lambda_r, 4.0) * qr / m_cons26;
         }
 
         // Snow
-        if (qs > qsmall) {
+        if (qs > m_qsmall) {
           // Calculate lambda parameter
-          amrex::Real cons_s = pi * rhosn / 6.0;
-          lambda_s = pow(cons_s * ns_local / qs, 1.0/3.0);
-
-          // Lambda bounds from WRF
-          amrex::Real lambda_min = 1.0/2000.0e-6;  // WRF bound
-          amrex::Real lambda_max = 1.0/10.0e-6;    // WRF bound
+          lambda_s = pow(m_cons1 * ns_local / qs, 1.0/m_ds);
 
           // Apply bounds to lambda
-          lambda_s = amrex::max(lambda_min, amrex::min(lambda_s, lambda_max));
+          lambda_s = amrex::max(m_lammins, amrex::min(lambda_s, m_lammaxs));
 
           // Calculate intercept parameter using WRF formula
-          n0_s = pow(lambda_s, 4.0) * qs / cons_s;
+          n0_s = pow(lambda_s, 4.0) * qs / m_cons1;
         }
 
         // Graupel
-        if (qg > qsmall) {
+        if (qg > m_qsmall) {
           // Calculate lambda parameter
-          amrex::Real cons_g = pi * rhog / 6.0;
-          lambda_g = pow(cons_g * ng_local / qg, 1.0/3.0);
-
-          // Lambda bounds from WRF
-          amrex::Real lambda_min = 1.0/2000.0e-6;  // WRF bound
-          amrex::Real lambda_max = 1.0/20.0e-6;    // WRF bound
+          lambda_g = pow(m_cons2 * ng_local / qg, 1.0/m_dg);
 
           // Apply bounds to lambda
-          lambda_g = amrex::max(lambda_min, amrex::min(lambda_g, lambda_max));
+          lambda_g = amrex::max(m_lamming, amrex::min(lambda_g, m_lammaxg));
 
           // Calculate intercept parameter using WRF formula
-          n0_g = pow(lambda_g, 4.0) * qg / cons_g;
+          n0_g = pow(lambda_g, 4.0) * qg / m_cons2;
         }
 #endif
     }

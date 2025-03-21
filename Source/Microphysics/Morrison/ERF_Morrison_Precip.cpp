@@ -211,8 +211,6 @@ Morrison::Precip(const SolverChoice& sc)
                                       qc, qi, qr, qs, qg,
                                       nc, ni, nr, ns, ng,
                                       rho, temp, pres,
-                                      m_pi, m_rhow, m_rhoi, m_rhosn, m_rhog,
-                                      m_qsmall, m_inum, m_ndcnst, m_dcs,
                                       lamc, lamr, lami, lams, lamg,
                                       n0c, n0r, n0i, n0s, n0g);
 
