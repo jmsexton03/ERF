@@ -306,125 +306,63 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
     // Duration of each substep
     const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
 
-    //------------------------------------------------------------------
-    // Calculate mass and number fluxes at cell interfaces
-    // Use precalculated fall speeds to determine fluxes
-    //------------------------------------------------------------------
-    for (int k = klo; k < khi; ++k) {
-        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
-            const int k = k_local + klo;  // Adjust k to global index
-            
-            if (k < khi) {  // Skip the top boundary
 
-                        // Calculate size distribution parameters
-                        size_distributions_params(
-                            qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
-                            nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
-                            rho(i,j,k), tabs(i,j,k), pres(i,j,k),
-                            lamc, lamr, lami, lams, lamg, pgam,
-                            n0c, n0r, n0i, n0s, n0g);
-                        //--------------------------------------------------------------
-                        // Rain fallout
-                        //--------------------------------------------------------------
-                        if (qpr(i,j,k) > m_qsmall && lamr > 0) {
-
-                            // Calculate mass-weighted and number-weighted fall speeds
-                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                            amrex::Real umr = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
-                            amrex::Real unr = air_density_factor * m_ar * m_cons6 / std::pow(lamr, m_br);
-
-                            // Apply fall speed limits
-                            umr = std::min(umr, 9.1 * air_density_factor);
-                            unr = std::min(unr, 9.1 * air_density_factor);
-
-                            // Calculate fluxes (mass and number)
-                            flux_qr(i,j,k) = umr * qpr(i,j,k) * rho(i,j,k);
-                            flux_nr(i,j,k) = unr * nr(i,j,k) * rho(i,j,k);
-                        }
-
-                        //--------------------------------------------------------------
-                        // Snow fallout
-                        //--------------------------------------------------------------
-                        if (qps(i,j,k) > m_qsmall && lams > 0) {
-
-                            // Calculate mass-weighted and number-weighted fall speeds
-                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                            amrex::Real ums = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
-                            amrex::Real uns = air_density_factor * m_as * m_cons5 / std::pow(lams, m_bs);
-
-                            // Apply fall speed limits
-                            ums = std::min(ums, 1.2 * air_density_factor);
-                            uns = std::min(uns, 1.2 * air_density_factor);
-
-                            // Calculate fluxes (mass and number)
-                            flux_qs(i,j,k) = ums * qps(i,j,k) * rho(i,j,k);
-                            flux_ns(i,j,k) = uns * ns(i,j,k) * rho(i,j,k);
-                        }
-
-                        //--------------------------------------------------------------
-                        // Graupel fallout
-                        //--------------------------------------------------------------
-                        if (qpg(i,j,k) > m_qsmall && lamg > 0) {
-
-                            // Calculate mass-weighted and number-weighted fall speeds
-                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                            amrex::Real umg = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
-                            amrex::Real ung = air_density_factor * m_ag * m_cons8 / std::pow(lamg, m_bg);
-
-                            // Apply fall speed limits
-                            umg = std::min(umg, 20.0 * air_density_factor);
-                            ung = std::min(ung, 20.0 * air_density_factor);
-
-                            // Calculate fluxes (mass and number)
-                            flux_qg(i,j,k) = umg * qpg(i,j,k) * rho(i,j,k);
-                            flux_ng(i,j,k) = ung * ng(i,j,k) * rho(i,j,k);
-                        }
-
-                        //--------------------------------------------------------------
-                        // Cloud ice fallout
-                        //--------------------------------------------------------------
-                        if (qci(i,j,k) > m_qsmall && lami > 0) {
-                            // Calculate mass-weighted and number-weighted fall speeds
-                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
-                            amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
-                            amrex::Real uni = air_density_factor * m_ai * m_cons27 / std::pow(lami, m_bi);
-                            
-                            // Apply fall speed limits (WRF uses same limit as snow)
-                            umi = std::min(umi, 1.2 * air_density_factor);
-                            uni = std::min(uni, 1.2 * air_density_factor);
-
-                            // Calculate fluxes (mass and number)
-                            flux_qi(i,j,k) = umi * qci(i,j,k) * rho(i,j,k);
-                            flux_ni(i,j,k) = uni * ni(i,j,k) * rho(i,j,k);
-                        }
-
-                        //--------------------------------------------------------------
-                        // Cloud water fallout
-                        //--------------------------------------------------------------
-                        if (qcl(i,j,k) > m_qsmall && lamc > 0) {
-                            // Get air density correction factor (if needed)
-			    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-		    
-                            // Calculate mass-weighted and number-weighted terminal velocities
-                            // using the gamma function approach from the Fortran code
-                            amrex::Real unc = m_ac * std::tgamma(1.0 + m_bc + pgam) / 
-                                             (std::pow(lamc, m_bc) * std::tgamma(pgam + 1.0));
-
-                            amrex::Real umc = m_ac * std::tgamma(4.0 + m_bc + pgam) / 
-                                             (std::pow(lamc, m_bc) * std::tgamma(pgam + 4.0));
-
-                            // Apply air density correction
-                            unc *= air_density_factor;
-                            umc *= air_density_factor;
-
-                            // Calculate fluxes (mass and number)
-                            flux_qc(i,j,k) = umc * qcl(i,j,k) * rho(i,j,k);
-                            flux_nc(i,j,k) = unc * nc(i,j,k) * rho(i,j,k);
-                        }
-                    }
-                });
+//------------------------------------------------------------------
+// Calculate mass and number fluxes at cell interfaces
+// Use precalculated fall speeds to determine fluxes
+//------------------------------------------------------------------
+for (int k = klo; k < khi; ++k) {
+    amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
+        const int k = k_local + klo;  // Adjust k to global index
+        
+        if (k < khi) {  // Skip the top boundary
+            //--------------------------------------------------------------
+            // Rain fallout
+            //--------------------------------------------------------------
+            if (qpr(i,j,k) > m_qsmall) {
+                // Use the pre-calculated fall speeds (fr, fnr) to compute fluxes
+                flux_qr(i,j,k) = fr(i,j,k) * qpr(i,j,k) * rho(i,j,k);
+                flux_nr(i,j,k) = fnr(i,j,k) * nr(i,j,k) * rho(i,j,k);
             }
 
+            //--------------------------------------------------------------
+            // Snow fallout
+            //--------------------------------------------------------------
+            if (qps(i,j,k) > m_qsmall) {
+                // Use the pre-calculated fall speeds (fs, fns) to compute fluxes
+                flux_qs(i,j,k) = fs(i,j,k) * qps(i,j,k) * rho(i,j,k);
+                flux_ns(i,j,k) = fns(i,j,k) * ns(i,j,k) * rho(i,j,k);
+            }
+
+            //--------------------------------------------------------------
+            // Graupel fallout
+            //--------------------------------------------------------------
+            if (qpg(i,j,k) > m_qsmall) {
+                // Use the pre-calculated fall speeds (fg, fng) to compute fluxes
+                flux_qg(i,j,k) = fg(i,j,k) * qpg(i,j,k) * rho(i,j,k);
+                flux_ng(i,j,k) = fng(i,j,k) * ng(i,j,k) * rho(i,j,k);
+            }
+
+            //--------------------------------------------------------------
+            // Cloud ice fallout
+            //--------------------------------------------------------------
+            if (qci(i,j,k) > m_qsmall) {
+                // Use the pre-calculated fall speeds (fi, fni) to compute fluxes
+                flux_qi(i,j,k) = fi(i,j,k) * qci(i,j,k) * rho(i,j,k);
+                flux_ni(i,j,k) = fni(i,j,k) * ni(i,j,k) * rho(i,j,k);
+            }
+
+            //--------------------------------------------------------------
+            // Cloud water fallout
+            //--------------------------------------------------------------
+            if (qcl(i,j,k) > m_qsmall) {
+                // Use the pre-calculated fall speeds (fc, fnc) to compute fluxes
+                flux_qc(i,j,k) = fc(i,j,k) * qcl(i,j,k) * rho(i,j,k);
+                flux_nc(i,j,k) = fnc(i,j,k) * nc(i,j,k) * rho(i,j,k);
+            }
+        }
+    });
+}
             //------------------------------------------------------------------
             // Apply sedimentation tendencies to state variables (lines ~3902-4000)
             //------------------------------------------------------------------
@@ -477,7 +415,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 ng(i,j,k) += tend_ng * dt_sub;
                 ni(i,j,k) += tend_ni * dt_sub;
                 nc(i,j,k) += tend_nc * dt_sub;
-
+#if 0
                 // Floor values to prevent negative concentrations
                 qpr(i,j,k) = std::max(qpr(i,j,k), 0.0);
                 qps(i,j,k) = std::max(qps(i,j,k), 0.0);
@@ -511,6 +449,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     qcl(i,j,k) = 0.0;
                     nc(i,j,k) = 0.0;
                 }
+#endif
             });
 
             //------------------------------------------------------------------
