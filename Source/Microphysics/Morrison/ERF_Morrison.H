@@ -635,6 +635,8 @@ private:
                                    const amrex::Real rho, const amrex::Real temp, const amrex::Real pres,
                                    // Output lambda parameters
                                    amrex::Real &lambda_c, amrex::Real &lambda_r, amrex::Real &lambda_i, amrex::Real &lambda_s, amrex::Real &lambda_g,
+                                   // Output pgam parameter
+				   amrex::Real& pgam,
                                    // Output intercept parameters
                                    amrex::Real &n0_c, amrex::Real &n0_r, amrex::Real &n0_i, amrex::Real &n0_s, amrex::Real &n0_g,
                                    // Flag for simple lambda calculation method
@@ -676,7 +678,7 @@ private:
         // Cloud droplets
         if (qc > m_qsmall) {
           // Get pgam from fit to observations of Martin et al. 1994
-          amrex::Real pgam = 1.0 - 0.7 * exp(-0.008 * 1.e-6 * nc_local * rho);
+          pgam = 1.0 - 0.7 * exp(-0.008 * 1.e-6 * nc_local * rho);
           pgam = 1.0/(pgam*pgam) - 1.0;
           pgam = amrex::max(pgam, 2.0);
 
@@ -789,7 +791,7 @@ private:
             // Cloud droplets
             if (qc > m_qsmall) {
                 amrex::Real dum = pres/(287.15 * temp);
-                amrex::Real pgam = 0.0005714 * (nc_local/1.e6 * dum) + 0.2714;
+                pgam = 0.0005714 * (nc_local/1.e6 * dum) + 0.2714;
                 pgam = 1.0/(pgam*pgam) - 1.0;
                 pgam = amrex::max(pgam, 2.0);
                 pgam = amrex::min(pgam, 10.0);
@@ -829,7 +831,7 @@ private:
               amrex::Real dum = pres/(287.15*temp);
 
               // MARTIN ET AL. (1994) FORMULA FOR PGAM (WRF implementation)
-              amrex::Real pgam = 0.0005714*(nc_local/1.0e6*dum) + 0.2714;
+              pgam = 0.0005714*(nc_local/1.0e6*dum) + 0.2714;
               pgam = 1.0/(pgam*pgam) - 1.0;
               pgam = amrex::max(pgam, 2.0);
               pgam = amrex::min(pgam, 10.0);

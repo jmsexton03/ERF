@@ -204,6 +204,7 @@ Morrison::Precip(const SolverChoice& sc)
 
             // Calculate size distribution parameters for all hydrometeors
             amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
+            amrex::Real pgam = 0.0;
             amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
 
             // Calculate size distribution parameters
@@ -211,7 +212,7 @@ Morrison::Precip(const SolverChoice& sc)
                                       qc, qi, qr, qs, qg,
                                       nc, ni, nr, ns, ng,
                                       rho, temp, pres,
-                                      lamc, lamr, lami, lams, lamg,
+                                      lamc, lamr, lami, lams, lamg, pgam,
                                       n0c, n0r, n0i, n0s, n0g);
 // unclear where ccn should live
 #if 0            

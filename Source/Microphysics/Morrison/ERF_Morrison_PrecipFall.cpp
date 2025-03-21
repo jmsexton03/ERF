@@ -112,13 +112,14 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     // Calculate size distribution parameters for all hydrometeors
                     amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
                     amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
+                    amrex::Real pgam = 0.0;
 
-                    // Calculate size distribution parameters
+	            // Calculate size distribution parameters
                     size_distributions_params(
                         qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
                         nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
                         rho(i,j,k), tabs(i,j,k), pres(i,j,k),
-                        lamc, lamr, lami, lams, lamg,
+                        lamc, lamr, lami, lams, lamg, pgam,
                         n0c, n0r, n0i, n0s, n0g);
 
                     // Rain fall speed
@@ -209,10 +210,11 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             //------------------------------------------------------------------
             // Calculate mass and number fluxes at cell interfaces
             // Terminal velocity limits based on WRF implementation:
-            // - Rain: 9.1 m/s * density correction
-            // - Snow: 1.2 m/s * density correction
-            // - Graupel: 20 m/s * density correction
-            // - Cloud ice: 1.2 m/s * density correction
+            // - Rain: 9.1 m/s * density correction (power 0.54)
+            // - Snow: 1.2 m/s * density correction (power 0.54)
+            // - Graupel: 20 m/s * density correction (power 0.54)
+            // - Cloud ice: 1.2 m/s * density correction (power 0.35, Ikawa and Saito 1991)
+            // - Cloud water: Temperature-dependent Stokes fall speed (no explicit limit)
             //------------------------------------------------------------------
             for (int k = klo; k < khi; ++k) {
                 amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
@@ -229,7 +231,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                             qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
                             nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
                             rho(i,j,k), tabs(i,j,k), pres(i,j,k),
-                            lamc, lamr, lami, lams, lamg,
+                            lamc, lamr, lami, lams, lamg, pgam,
                             n0c, n0r, n0i, n0s, n0g);
                         //--------------------------------------------------------------
                         // Rain fallout
@@ -296,6 +298,10 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
                             amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
                             amrex::Real uni = air_density_factor * m_ai * m_cons27 / std::pow(lami, m_bi);
+                            
+                            // Apply fall speed limits (WRF uses same limit as snow)
+                            umi = std::min(umi, 1.2 * air_density_factor);
+                            uni = std::min(uni, 1.2 * air_density_factor);
 
                             // Calculate fluxes (mass and number)
                             flux_qi(i,j,k) = umi * qci(i,j,k) * rho(i,j,k);
@@ -306,10 +312,20 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         // Cloud water fallout
                         //--------------------------------------------------------------
                         if (qcl(i,j,k) > m_qsmall) {
-                            // Temperature-dependent Stokes fall speed
-                            const amrex::Real mu = 1.496E-6 * std::pow(tabs(i,j,k), 1.5) / (tabs(i,j,k) + 120.0);
-                            amrex::Real umc = PhysProp::g * m_rhow / (18.0 * mu) * m_cons18;
-                            amrex::Real unc = umc;  // For cloud water, assume mass and number-weighted fall speeds are similar
+                            // Get air density correction factor (if needed)
+			    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
+		    
+                            // Calculate mass-weighted and number-weighted terminal velocities
+                            // using the gamma function approach from the Fortran code
+                            amrex::Real unc = m_ac * std::tgamma(1.0 + m_bc + pgam) / 
+                                             (std::pow(lamc, m_bc) * std::tgamma(pgam + 1.0));
+
+                            amrex::Real umc = m_ac * std::tgamma(4.0 + m_bc + pgam) / 
+                                             (std::pow(lamc, m_bc) * std::tgamma(pgam + 4.0));
+
+                            // Apply air density correction
+                            unc *= air_density_factor;
+                            umc *= air_density_factor;
 
                             // Calculate fluxes (mass and number)
                             flux_qc(i,j,k) = umc * qcl(i,j,k) * rho(i,j,k);
@@ -414,13 +430,13 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
                     for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
                         // Accumulate precipitation at the surface (bottom of domain)
-                        rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
-                        snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
+                        rain_arr(i,j,klo) += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
+                        snow_arr(i,j,klo) += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
                         graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
 
-                        // Accumulate totals for output
-                        rain_accum += flux_qr(i,j,klo) * dt_sub;
-                        snow_accum += flux_qs(i,j,klo) * dt_sub;
+                        // Accumulate totals for output (includes all precipitation)
+                        rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
+                        snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
                         graup_accum += flux_qg(i,j,klo) * dt_sub;
                     }
                 }
@@ -433,8 +449,8 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         auto const& qp = mic_fab_vars[MicVar_Morr::qp]->array(mfi);
 
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // Update total precipitation mixing ratio
-            qp(i,j,k) = qpr(i,j,k) + qps(i,j,k) + qpg(i,j,k);
+            // Update total precipitation mixing ratio (include all hydrometeors)
+            qp(i,j,k) = qpr(i,j,k) + qps(i,j,k) + qpg(i,j,k) + qcl(i,j,k) + qci(i,j,k);
         });
     }
 
@@ -445,4 +461,10 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 
     // Calculate domain average precipitation rates if desired
     // (would scale by domain area and output as mm/hr)
+
+    // Note: Accumulated precipitation now includes contributions from:
+    // - rain_accum: rain + cloud water sedimentation
+    // - snow_accum: snow + cloud ice sedimentation 
+    // - graup_accum: graupel sedimentation
+    // This matches the WRF implementation which tracks all surface precipitation
 }
