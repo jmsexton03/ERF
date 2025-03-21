@@ -360,7 +360,7 @@ for (int k = klo; k < khi; ++k) {
             //--------------------------------------------------------------
             // Rain fallout
             //--------------------------------------------------------------
-            if (qpr(i,j,k) > m_qsmall) {
+            if (qpr(i,j,k) > m_qsmall || qpr(i,j,k) >= 0.0) {
                 // Use the pre-calculated fall speeds (fr, fnr) to compute fluxes
                 flux_qr(i,j,k) = fr(i,j,k) * qpr(i,j,k) * rho(i,j,k);
                 flux_nr(i,j,k) = fnr(i,j,k) * nr(i,j,k) * rho(i,j,k);
@@ -369,7 +369,7 @@ for (int k = klo; k < khi; ++k) {
             //--------------------------------------------------------------
             // Snow fallout
             //--------------------------------------------------------------
-            if (qps(i,j,k) > m_qsmall) {
+            if (qps(i,j,k) > m_qsmall || qps(i,j,k) >= 0.0) {
                 // Use the pre-calculated fall speeds (fs, fns) to compute fluxes
                 flux_qs(i,j,k) = fs(i,j,k) * qps(i,j,k) * rho(i,j,k);
                 flux_ns(i,j,k) = fns(i,j,k) * ns(i,j,k) * rho(i,j,k);
@@ -378,7 +378,7 @@ for (int k = klo; k < khi; ++k) {
             //--------------------------------------------------------------
             // Graupel fallout
             //--------------------------------------------------------------
-            if (qpg(i,j,k) > m_qsmall) {
+            if (qpg(i,j,k) > m_qsmall || qpg(i,j,k) >= 0.0) {
                 // Use the pre-calculated fall speeds (fg, fng) to compute fluxes
                 flux_qg(i,j,k) = fg(i,j,k) * qpg(i,j,k) * rho(i,j,k);
                 flux_ng(i,j,k) = fng(i,j,k) * ng(i,j,k) * rho(i,j,k);
@@ -387,7 +387,7 @@ for (int k = klo; k < khi; ++k) {
             //--------------------------------------------------------------
             // Cloud ice fallout
             //--------------------------------------------------------------
-            if (qci(i,j,k) > m_qsmall) {
+            if (qci(i,j,k) > m_qsmall || qci(i,j,k) >= 0.0) {
                 // Use the pre-calculated fall speeds (fi, fni) to compute fluxes
                 flux_qi(i,j,k) = fi(i,j,k) * qci(i,j,k) * rho(i,j,k);
                 flux_ni(i,j,k) = fni(i,j,k) * ni(i,j,k) * rho(i,j,k);
@@ -396,7 +396,7 @@ for (int k = klo; k < khi; ++k) {
             //--------------------------------------------------------------
             // Cloud water fallout
             //--------------------------------------------------------------
-            if (qcl(i,j,k) > m_qsmall) {
+            if (qcl(i,j,k) > m_qsmall || qcl(i,j,k) >= 0.0) {
                 // Use the pre-calculated fall speeds (fc, fnc) to compute fluxes
                 flux_qc(i,j,k) = fc(i,j,k) * qcl(i,j,k) * rho(i,j,k);
                 flux_nc(i,j,k) = fnc(i,j,k) * nc(i,j,k) * rho(i,j,k);
