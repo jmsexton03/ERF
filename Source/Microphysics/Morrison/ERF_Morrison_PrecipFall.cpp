@@ -114,7 +114,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
                     amrex::Real pgam = 0.0;
 
-	            // Calculate size distribution parameters
+                    // Calculate size distribution parameters
                     size_distributions_params(
                         qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
                         nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
@@ -123,7 +123,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         n0c, n0r, n0i, n0s, n0g);
 
                     // Rain fall speed
-                    if (qpr(i,j,k) > m_qsmall) {
+                    if (qpr(i,j,k) > m_qsmall && lamr > 0) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         amrex::Real fall_speed_r = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
                         // Apply fall speed limit
@@ -132,7 +132,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     }
 
                     // Snow fall speed
-                    if (qps(i,j,k) > m_qsmall) {
+                    if (qps(i,j,k) > m_qsmall && lams > 0) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         amrex::Real fall_speed_s = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
                         // Apply fall speed limit 
@@ -141,7 +141,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     }
 
                     // Graupel fall speed
-                    if (qpg(i,j,k) > m_qsmall) {
+                    if (qpg(i,j,k) > m_qsmall && lamg > 0) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                         amrex::Real fall_speed_g = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
                         // Apply fall speed limit
@@ -150,7 +150,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     }
                     
                     // Cloud ice fall speed
-                    if (qci(i,j,k) > m_qsmall) {
+                    if (qci(i,j,k) > m_qsmall && lami > 0) {
                         // Ikawa and Saito 1991 air-density correction for cloud ice
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
                         amrex::Real fall_speed_i = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
@@ -160,9 +160,8 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     }
                     
                     // Cloud water fall speed
-                    if (qcl(i,j,k) > m_qsmall) {
-                        // Temperature-dependent Stokes fall speed for cloud droplets
-                        // Uses dynamic viscosity rather than kinematic
+                    if (qcl(i,j,k) > m_qsmall && lamc > 0) {
+                        // Temperature-dependent Stokes fall speed
                         const amrex::Real mu = 1.496E-6 * std::pow(tabs(i,j,k), 1.5) / (tabs(i,j,k) + 120.0);
                         const amrex::Real fall_speed_c = PhysProp::g * m_rhow / (18.0 * mu) * m_cons18;
                         max_fall_speed = std::max(max_fall_speed, fall_speed_c);
@@ -236,7 +235,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         // Rain fallout
                         //--------------------------------------------------------------
-                        if (qpr(i,j,k) > m_qsmall) {
+                        if (qpr(i,j,k) > m_qsmall && lamr > 0) {
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
@@ -255,7 +254,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         // Snow fallout
                         //--------------------------------------------------------------
-                        if (qps(i,j,k) > m_qsmall) {
+                        if (qps(i,j,k) > m_qsmall && lams > 0) {
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
@@ -274,7 +273,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         // Graupel fallout
                         //--------------------------------------------------------------
-                        if (qpg(i,j,k) > m_qsmall) {
+                        if (qpg(i,j,k) > m_qsmall && lamg > 0) {
 
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
@@ -293,7 +292,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         // Cloud ice fallout
                         //--------------------------------------------------------------
-                        if (qci(i,j,k) > m_qsmall) {
+                        if (qci(i,j,k) > m_qsmall && lami > 0) {
                             // Calculate mass-weighted and number-weighted fall speeds
                             const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
                             amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
@@ -311,7 +310,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         //--------------------------------------------------------------
                         // Cloud water fallout
                         //--------------------------------------------------------------
-                        if (qcl(i,j,k) > m_qsmall) {
+                        if (qcl(i,j,k) > m_qsmall && lamc > 0) {
                             // Get air density correction factor (if needed)
 			    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
 		    
@@ -430,9 +429,13 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
                     for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
                         // Accumulate precipitation at the surface (bottom of domain)
-                        rain_arr(i,j,klo) += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
-                        snow_arr(i,j,klo) += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
+                        rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
+                        snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
                         graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
+                        
+                        // Also accumulate cloud water and cloud ice sedimentation
+                        rain_arr(i,j,klo) += flux_qc(i,j,klo) * dt_sub;
+                        snow_arr(i,j,klo) += flux_qi(i,j,klo) * dt_sub;
 
                         // Accumulate totals for output (includes all precipitation)
                         rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
