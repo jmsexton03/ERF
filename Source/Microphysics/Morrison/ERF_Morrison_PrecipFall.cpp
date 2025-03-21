@@ -124,21 +124,27 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     // Rain fall speed
                     if (qpr(i,j,k) > m_qsmall) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        const amrex::Real fall_speed_r = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
+                        amrex::Real fall_speed_r = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
+                        // Apply fall speed limit
+                        fall_speed_r = std::min(fall_speed_r, 9.1 * air_density_factor);
                         max_fall_speed = std::max(max_fall_speed, fall_speed_r);
                     }
 
                     // Snow fall speed
                     if (qps(i,j,k) > m_qsmall) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        const amrex::Real fall_speed_s = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
+                        amrex::Real fall_speed_s = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
+                        // Apply fall speed limit 
+                        fall_speed_s = std::min(fall_speed_s, 1.2 * air_density_factor);
                         max_fall_speed = std::max(max_fall_speed, fall_speed_s);
                     }
 
                     // Graupel fall speed
                     if (qpg(i,j,k) > m_qsmall) {
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        const amrex::Real fall_speed_g = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
+                        amrex::Real fall_speed_g = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
+                        // Apply fall speed limit
+                        fall_speed_g = std::min(fall_speed_g, 20.0 * air_density_factor);
                         max_fall_speed = std::max(max_fall_speed, fall_speed_g);
                     }
                     
@@ -146,7 +152,9 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     if (qci(i,j,k) > m_qsmall) {
                         // Ikawa and Saito 1991 air-density correction for cloud ice
                         const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
-                        const amrex::Real fall_speed_i = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
+                        amrex::Real fall_speed_i = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
+                        // Apply fall speed limit
+                        fall_speed_i = std::min(fall_speed_i, 1.2 * air_density_factor);
                         max_fall_speed = std::max(max_fall_speed, fall_speed_i);
                     }
                     
@@ -200,6 +208,11 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 
             //------------------------------------------------------------------
             // Calculate mass and number fluxes at cell interfaces
+            // Terminal velocity limits based on WRF implementation:
+            // - Rain: 9.1 m/s * density correction
+            // - Snow: 1.2 m/s * density correction
+            // - Graupel: 20 m/s * density correction
+            // - Cloud ice: 1.2 m/s * density correction
             //------------------------------------------------------------------
             for (int k = klo; k < khi; ++k) {
                 amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
@@ -363,19 +376,15 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 qpr(i,j,k) = std::max(qpr(i,j,k), 0.0);
                 qps(i,j,k) = std::max(qps(i,j,k), 0.0);
                 qpg(i,j,k) = std::max(qpg(i,j,k), 0.0);
+                qci(i,j,k) = std::max(qci(i,j,k), 0.0);
+                qcl(i,j,k) = std::max(qcl(i,j,k), 0.0);
                 nr(i,j,k) = std::max(nr(i,j,k), 0.0);
                 ns(i,j,k) = std::max(ns(i,j,k), 0.0);
                 ng(i,j,k) = std::max(ng(i,j,k), 0.0);
+                ni(i,j,k) = std::max(ni(i,j,k), 0.0);
+                nc(i,j,k) = std::max(nc(i,j,k), 0.0);
 
                 // Set very small values to zero
-                if (qci(i,j,k) < m_qsmall) {
-                    qci(i,j,k) = 0.0;
-                    ni(i,j,k) = 0.0;
-                }
-                if (qcl(i,j,k) < m_qsmall) {
-                    qcl(i,j,k) = 0.0;
-                    nc(i,j,k) = 0.0;
-                }
                 if (qpr(i,j,k) < m_qsmall) {
                     qpr(i,j,k) = 0.0;
                     nr(i,j,k) = 0.0;
@@ -388,6 +397,14 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     qpg(i,j,k) = 0.0;
                     ng(i,j,k) = 0.0;
                 }
+                if (qci(i,j,k) < m_qsmall) {
+                    qci(i,j,k) = 0.0;
+                    ni(i,j,k) = 0.0;
+                }
+                if (qcl(i,j,k) < m_qsmall) {
+                    qcl(i,j,k) = 0.0;
+                    nc(i,j,k) = 0.0;
+                }
             });
 
             //------------------------------------------------------------------
@@ -398,12 +415,12 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
                         // Accumulate precipitation at the surface (bottom of domain)
                         rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
-                        snow_arr(i,j,klo) += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
+                        snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
                         graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
 
-                        // Accumulate totals for output (includes cloud water/ice)
-                        rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
-                        snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
+                        // Accumulate totals for output
+                        rain_accum += flux_qr(i,j,klo) * dt_sub;
+                        snow_accum += flux_qs(i,j,klo) * dt_sub;
                         graup_accum += flux_qg(i,j,klo) * dt_sub;
                     }
                 }
