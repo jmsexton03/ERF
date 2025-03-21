@@ -213,71 +213,8 @@ Morrison::Precip(const SolverChoice& sc)
                                       rho, temp, pres,
                                       lamc, lamr, lami, lams, lamg,
                                       n0c, n0r, n0i, n0s, n0g);
-
-            // Rain distribution
-            if (qr >= m_qsmall) {
-                lamr = std::pow(M_PI * m_rhow * nr / qr, 1.0/3.0);
-                
-                // Apply lambda limits
-                lamr = amrex::max(lamr, m_lamminr);
-                lamr = amrex::min(lamr, m_lammaxr);
-                
-                n0r = nr * lamr;
-            }
+// unclear where ccn should live
 #if 0            
-            // Snow distribution
-            if (qs >= m_qsmall) {
-                lams = std::pow(m_cons1 * ns / qs, 1.0/m_ds);
-                
-                // Apply lambda limits
-                lams = amrex::max(lams, m_lammins);
-                lams = amrex::min(lams, m_lammaxs);
-                
-                n0s = ns * lams;
-            }
-            
-            // Graupel distribution
-            if (qg >= m_qsmall) {
-                lamg = std::pow(m_cons2 * ng / qg, 1.0/m_dg);
-                
-                // Apply lambda limits
-                lamg = amrex::max(lamg, m_lamming);
-                lamg = amrex::min(lamg, m_lammaxg);
-                
-                n0g = ng * lamg;
-            }
-            
-            // Ice distribution
-            if (qi >= m_qsmall) {
-                lami = std::pow(m_cons12 * ni / qi, 1.0/m_di);
-                
-                // Apply lambda limits
-                lami = amrex::max(lami, m_lammini);
-                lami = amrex::min(lami, m_lammaxi);
-                
-                n0i = ni * lami;
-            }
-
-            // Cloud distribution
-            if (qc >= m_qsmall) {
-                // Cloud droplet gamma distribution shape parameter
-                const amrex::Real dum = thermo_pres(i,j,k) / (287.15 * temp);
-                pgam = 0.0005714 * (nc * rho / 1.0e6 * dum) + 0.2714;
-                pgam = 1.0 / (pgam * pgam) - 1.0;
-                pgam = amrex::max(pgam, 2.0);
-                pgam = amrex::min(pgam, 10.0);
-                
-                // Calculate cloud droplet mean size parameter
-                lamc = std::pow(m_cons26 * nc * gamma_function(pgam + 4.0) /
-                               (qc * gamma_function(pgam + 1.0)), 1.0/3.0);
-                
-                // Apply lambda limits
-                const amrex::Real lammin = (pgam + 1.0) / 60.0e-6;
-                const amrex::Real lammax = (pgam + 1.0) / 1.0e-6;
-                lamc = amrex::max(lamc, lammin);
-                lamc = amrex::min(lamc, lammax);
-            }
-            
             //----------------------------------------------------------------------
             // Q Process: PCCN
             // N Process: 
