@@ -101,129 +101,220 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         auto const& flux_ni = flux_ni_fab.array();
         auto const& flux_nc = flux_nc_fab.array();
 
-        //----------------------------------------------------------------------
-        // Calculate maximum fall speeds for all hydrometeor species
-        //----------------------------------------------------------------------
-        amrex::Real max_fall_speed = 0.0;
-
-        for (int k = klo; k <= khi; ++k) {
-            for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
-                for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
-                    // Calculate size distribution parameters for all hydrometeors
-                    amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
-                    amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
-                    amrex::Real pgam = 0.0;
-
-                    // Calculate size distribution parameters
-                    size_distributions_params(
-                        qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
-                        nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
-                        rho(i,j,k), tabs(i,j,k), pres(i,j,k),
-                        lamc, lamr, lami, lams, lamg, pgam,
-                        n0c, n0r, n0i, n0s, n0g);
-
-                    // Rain fall speed
-                    if (qpr(i,j,k) > m_qsmall && lamr > 0) {
-                        const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        amrex::Real fall_speed_r = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
-                        // Apply fall speed limit
-                        fall_speed_r = std::min(fall_speed_r, 9.1 * air_density_factor);
-                        max_fall_speed = std::max(max_fall_speed, fall_speed_r);
-                    }
-
-                    // Snow fall speed
-                    if (qps(i,j,k) > m_qsmall && lams > 0) {
-                        const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        amrex::Real fall_speed_s = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
-                        // Apply fall speed limit 
-                        fall_speed_s = std::min(fall_speed_s, 1.2 * air_density_factor);
-                        max_fall_speed = std::max(max_fall_speed, fall_speed_s);
-                    }
-
-                    // Graupel fall speed
-                    if (qpg(i,j,k) > m_qsmall && lamg > 0) {
-                        const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
-                        amrex::Real fall_speed_g = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
-                        // Apply fall speed limit
-                        fall_speed_g = std::min(fall_speed_g, 20.0 * air_density_factor);
-                        max_fall_speed = std::max(max_fall_speed, fall_speed_g);
-                    }
+//----------------------------------------------------------------------
+    // Calculate fall speeds for each hydrometeor species and track maximum
+    // for determining time step splitting, following the WRF approach
+    //----------------------------------------------------------------------
+    // Arrays to store terminal velocities for mass and number
+    amrex::FArrayBox fr_fab(box, 1);  // Mass-weighted fall speed for rain
+    amrex::FArrayBox fs_fab(box, 1);  // Mass-weighted fall speed for snow
+    amrex::FArrayBox fg_fab(box, 1);  // Mass-weighted fall speed for graupel 
+    amrex::FArrayBox fi_fab(box, 1);  // Mass-weighted fall speed for cloud ice
+    amrex::FArrayBox fc_fab(box, 1);  // Mass-weighted fall speed for cloud water
+    
+    amrex::FArrayBox fnr_fab(box, 1); // Number-weighted fall speed for rain
+    amrex::FArrayBox fns_fab(box, 1); // Number-weighted fall speed for snow
+    amrex::FArrayBox fng_fab(box, 1); // Number-weighted fall speed for graupel
+    amrex::FArrayBox fni_fab(box, 1); // Number-weighted fall speed for cloud ice
+    amrex::FArrayBox fnc_fab(box, 1); // Number-weighted fall speed for cloud water
+    
+    auto const& fr = fr_fab.array();
+    auto const& fs = fs_fab.array();
+    auto const& fg = fg_fab.array();
+    auto const& fi = fi_fab.array();
+    auto const& fc = fc_fab.array();
+    
+    auto const& fnr = fnr_fab.array();
+    auto const& fns = fns_fab.array();
+    auto const& fng = fng_fab.array();
+    auto const& fni = fni_fab.array();
+    auto const& fnc = fnc_fab.array();
+    
+    // Initialize fall speeds to zero
+    amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+        fr(i,j,k) = 0.0;
+        fs(i,j,k) = 0.0;
+        fg(i,j,k) = 0.0;
+        fi(i,j,k) = 0.0;
+        fc(i,j,k) = 0.0;
+        
+        fnr(i,j,k) = 0.0;
+        fns(i,j,k) = 0.0;
+        fng(i,j,k) = 0.0;
+        fni(i,j,k) = 0.0;
+        fnc(i,j,k) = 0.0;
+    });
+    
+    // Calculate fall speeds for all hydrometeors at all levels
+    for (int k = klo; k <= khi; ++k) {
+        for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+            for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                // Calculate size distribution parameters for all hydrometeors
+                amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
+                amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
+                amrex::Real pgam = 0.0;
+                
+                // Calculate size distribution parameters
+                size_distributions_params(
+                    qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
+                    nc(i,j,k), ni(i,j,k), nr(i,j,k), ns(i,j,k), ng(i,j,k),
+                    rho(i,j,k), tabs(i,j,k), pres(i,j,k),
+                    lamc, lamr, lami, lams, lamg, pgam,
+                    n0c, n0r, n0i, n0s, n0g);
+                
+                // Cloud water fall speed
+                if (qcl(i,j,k) >= m_qsmall && lamc > 0.0) {
+                    // Use gamma function approach for consistency with WRF
+                    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
+                    amrex::Real umc = m_ac * std::tgamma(4.0 + m_bc + pgam) / 
+                                      (std::pow(lamc, m_bc) * std::tgamma(pgam + 4.0));
+                    amrex::Real unc = m_ac * std::tgamma(1.0 + m_bc + pgam) / 
+                                      (std::pow(lamc, m_bc) * std::tgamma(pgam + 1.0));
                     
-                    // Cloud ice fall speed
-                    if (qci(i,j,k) > m_qsmall && lami > 0) {
-                        // Ikawa and Saito 1991 air-density correction for cloud ice
-                        const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
-                        amrex::Real fall_speed_i = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
-                        // Apply fall speed limit
-                        fall_speed_i = std::min(fall_speed_i, 1.2 * air_density_factor);
-                        max_fall_speed = std::max(max_fall_speed, fall_speed_i);
-                    }
+                    // Apply air density correction
+                    umc *= air_density_factor;
+                    unc *= air_density_factor;
                     
-                    // Cloud water fall speed
-                    if (qcl(i,j,k) > m_qsmall && lamc > 0) {
-                        // Temperature-dependent Stokes fall speed
-                        const amrex::Real mu = 1.496E-6 * std::pow(tabs(i,j,k), 1.5) / (tabs(i,j,k) + 120.0);
-                        const amrex::Real fall_speed_c = PhysProp::g * m_rhow / (18.0 * mu) * m_cons18;
-                        max_fall_speed = std::max(max_fall_speed, fall_speed_c);
+                    fc(i,j,k) = umc;
+                    fnc(i,j,k) = unc;
+                }
+                
+                // Cloud ice fall speed
+                if (qci(i,j,k) >= m_qsmall && lami > 0.0) {
+                    // Ikawa and Saito 1991 air-density correction for cloud ice
+                    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
+                    amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
+                    amrex::Real uni = air_density_factor * m_ai * m_cons27 / std::pow(lami, m_bi);
+                    
+                    // Apply fall speed limits
+                    umi = std::min(umi, 1.2 * air_density_factor);
+                    uni = std::min(uni, 1.2 * air_density_factor);
+                    
+                    fi(i,j,k) = umi;
+                    fni(i,j,k) = uni;
+                }
+                
+                // Rain fall speed
+                if (qpr(i,j,k) >= m_qsmall && lamr > 0.0) {
+                    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
+                    amrex::Real umr = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
+                    amrex::Real unr = air_density_factor * m_ar * m_cons6 / std::pow(lamr, m_br);
+                    
+                    // Apply fall speed limits
+                    umr = std::min(umr, 9.1 * air_density_factor);
+                    unr = std::min(unr, 9.1 * air_density_factor);
+                    
+                    fr(i,j,k) = umr;
+                    fnr(i,j,k) = unr;
+                }
+                
+                // Snow fall speed
+                if (qps(i,j,k) >= m_qsmall && lams > 0.0) {
+                    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
+                    amrex::Real ums = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
+                    amrex::Real uns = air_density_factor * m_as * m_cons5 / std::pow(lams, m_bs);
+                    
+                    // Apply fall speed limits
+                    ums = std::min(ums, 1.2 * air_density_factor);
+                    uns = std::min(uns, 1.2 * air_density_factor);
+                    
+                    fs(i,j,k) = ums;
+                    fns(i,j,k) = uns;
+                }
+                
+                // Graupel fall speed
+                if (qpg(i,j,k) >= m_qsmall && lamg > 0.0) {
+                    const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
+                    amrex::Real umg = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
+                    amrex::Real ung = air_density_factor * m_ag * m_cons8 / std::pow(lamg, m_bg);
+                    
+                    // Apply fall speed limits
+                    umg = std::min(umg, 20.0 * air_density_factor);
+                    ung = std::min(ung, 20.0 * air_density_factor);
+                    
+                    fg(i,j,k) = umg;
+                    fng(i,j,k) = ung;
+                }
+                
+                // Fix velocities below precipitation - if a velocity is zero, set to
+                // value from level above (if available) - this matches WRF V3.3+
+                if (k < khi) {
+                    if (fr(i,j,k) < 1.0e-10 && k+1 <= khi) {
+                        fr(i,j,k) = fr(i,j,k+1);
+                        fnr(i,j,k) = fnr(i,j,k+1);
+                    }
+                    if (fs(i,j,k) < 1.0e-10 && k+1 <= khi) {
+                        fs(i,j,k) = fs(i,j,k+1);
+                        fns(i,j,k) = fns(i,j,k+1);
+                    }
+                    if (fg(i,j,k) < 1.0e-10 && k+1 <= khi) {
+                        fg(i,j,k) = fg(i,j,k+1);
+                        fng(i,j,k) = fng(i,j,k+1);
+                    }
+                    if (fi(i,j,k) < 1.0e-10 && k+1 <= khi) {
+                        fi(i,j,k) = fi(i,j,k+1);
+                        fni(i,j,k) = fni(i,j,k+1);
+                    }
+                    if (fc(i,j,k) < 1.0e-10 && k+1 <= khi) {
+                        fc(i,j,k) = fc(i,j,k+1);
+                        fnc(i,j,k) = fnc(i,j,k+1);
                     }
                 }
             }
         }
-
-        //----------------------------------------------------------------------
-        // Calculate number of sub-timesteps needed for stability
-        //----------------------------------------------------------------------
-        int num_split_steps = 1;
-        amrex::Real dz_min = m_geom.CellSize(m_axis);
-
-        if (max_fall_speed > 0.0) {
-            // Calculate Courant number
-            amrex::Real courant = max_fall_speed * dt / dz_min;
-
-            // Calculate number of substeps needed for stability
-            num_split_steps = static_cast<int>(std::ceil(courant / CFL_MAX));
-            num_split_steps = std::min(num_split_steps, max_split_steps);
+    }
+    
+    // Find maximum fall speed across all hydrometeors
+    // This matches the RGVM calculation in WRF to determine time splitting
+    amrex::Real max_fall_speed = 0.0;
+    for (int k = klo; k <= khi; ++k) {
+        for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+            for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                // Find maximum fall speed for any species at this grid point
+                amrex::Real local_max = std::max(fr(i,j,k), std::max(fi(i,j,k), 
+                                       std::max(fs(i,j,k), std::max(fc(i,j,k), fg(i,j,k)))));
+                
+                // Also check number-weighted fall speeds
+                local_max = std::max(local_max, std::max(fnr(i,j,k), std::max(fni(i,j,k),
+                                     std::max(fns(i,j,k), std::max(fnc(i,j,k), fng(i,j,k))))));
+                
+                // Update global maximum if needed
+                max_fall_speed = std::max(max_fall_speed, local_max);
+            }
         }
+    }
 
-        // Duration of each substep
-        const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
+    //----------------------------------------------------------------------
+    // Calculate number of sub-timesteps needed for stability - matches WRF approach
+    //----------------------------------------------------------------------
+    int num_split_steps = 1;
+    amrex::Real dz_min = m_geom.CellSize(m_axis);
+    
+    if (max_fall_speed > 0.0) {
+        // Calculate Courant number based on maximum fallspeed across all species
+        // This matches the NSTEP calculation in WRF
+        amrex::Real courant = max_fall_speed * dt / dz_min;
+        
+        // Calculate number of substeps needed for stability
+        // Use ceil to ensure Courant ≤ CFL_MAX
+        num_split_steps = static_cast<int>(std::ceil(courant / CFL_MAX));
+        
+        // Limit to maximum allowed number of substeps
+        num_split_steps = std::max(1, std::min(num_split_steps, max_split_steps));
+    }
+    
+    // Duration of each substep
+    const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
 
-        //----------------------------------------------------------------------
-        // Perform sedimentation over multiple sub-timesteps if necessary
-        //----------------------------------------------------------------------
-        for (int step = 0; step < num_split_steps; ++step) {
-            // Initialize fluxes to zero
-            amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-                flux_qr(i,j,k) = 0.0;
-                flux_qs(i,j,k) = 0.0;
-                flux_qg(i,j,k) = 0.0;
-                flux_qi(i,j,k) = 0.0;
-                flux_qc(i,j,k) = 0.0;
-                flux_nr(i,j,k) = 0.0;
-                flux_ns(i,j,k) = 0.0;
-                flux_ng(i,j,k) = 0.0;
-                flux_ni(i,j,k) = 0.0;
-                flux_nc(i,j,k) = 0.0;
-            });
-
-            //------------------------------------------------------------------
-            // Calculate mass and number fluxes at cell interfaces
-            // Terminal velocity limits based on WRF implementation:
-            // - Rain: 9.1 m/s * density correction (power 0.54)
-            // - Snow: 1.2 m/s * density correction (power 0.54)
-            // - Graupel: 20 m/s * density correction (power 0.54)
-            // - Cloud ice: 1.2 m/s * density correction (power 0.35, Ikawa and Saito 1991)
-            // - Cloud water: Temperature-dependent Stokes fall speed (no explicit limit)
-            //------------------------------------------------------------------
-            for (int k = klo; k < khi; ++k) {
-                amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
-                    const int k = k_local + klo;  // Adjust k to global index
-
-                    if (k < khi) {  // Skip the top boundary
-                        // Calculate size distribution parameters for all hydrometeors
-                        amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
-                        amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
-                        amrex::Real pgam = 0.0;
+    //------------------------------------------------------------------
+    // Calculate mass and number fluxes at cell interfaces
+    // Use precalculated fall speeds to determine fluxes
+    //------------------------------------------------------------------
+    for (int k = klo; k < khi; ++k) {
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
+            const int k = k_local + klo;  // Adjust k to global index
+            
+            if (k < khi) {  // Skip the top boundary
 
                         // Calculate size distribution parameters
                         size_distributions_params(
