@@ -274,6 +274,34 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                             flux_qg(i,j,k) = umg * qpg(i,j,k) * rho(i,j,k);
                             flux_ng(i,j,k) = ung * ng(i,j,k) * rho(i,j,k);
                         }
+
+                        //--------------------------------------------------------------
+                        // Cloud ice fallout
+                        //--------------------------------------------------------------
+                        if (qci(i,j,k) > m_qsmall) {
+                            // Calculate mass-weighted and number-weighted fall speeds
+                            const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
+                            amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
+                            amrex::Real uni = air_density_factor * m_ai * m_cons27 / std::pow(lami, m_bi);
+
+                            // Calculate fluxes (mass and number)
+                            flux_qi(i,j,k) = umi * qci(i,j,k) * rho(i,j,k);
+                            flux_ni(i,j,k) = uni * ni(i,j,k) * rho(i,j,k);
+                        }
+
+                        //--------------------------------------------------------------
+                        // Cloud water fallout
+                        //--------------------------------------------------------------
+                        if (qcl(i,j,k) > m_qsmall) {
+                            // Temperature-dependent Stokes fall speed
+                            const amrex::Real mu = 1.496E-6 * std::pow(tabs(i,j,k), 1.5) / (tabs(i,j,k) + 120.0);
+                            amrex::Real umc = PhysProp::g * m_rhow / (18.0 * mu) * m_cons18;
+                            amrex::Real unc = umc;  // For cloud water, assume mass and number-weighted fall speeds are similar
+
+                            // Calculate fluxes (mass and number)
+                            flux_qc(i,j,k) = umc * qcl(i,j,k) * rho(i,j,k);
+                            flux_nc(i,j,k) = unc * nc(i,j,k) * rho(i,j,k);
+                        }
                     }
                 });
             }
@@ -285,37 +313,51 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 // Calculate the tendencies due to sedimentation
                 amrex::Real tend_qr = 0.0, tend_qs = 0.0, tend_qg = 0.0;
                 amrex::Real tend_nr = 0.0, tend_ns = 0.0, tend_ng = 0.0;
+                amrex::Real tend_qi = 0.0, tend_ni = 0.0;
+                amrex::Real tend_qc = 0.0, tend_nc = 0.0;
 
                 // Flux divergence for interior cells
                 if (k < khi) {
                     tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
 
                     tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                 }
 
                 if (k > klo) {
                     tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
 
                     tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                 }
 
                 // Apply tendencies
                 qpr(i,j,k) += tend_qr * dt_sub;
                 qps(i,j,k) += tend_qs * dt_sub;
                 qpg(i,j,k) += tend_qg * dt_sub;
+                qci(i,j,k) += tend_qi * dt_sub;
+                qcl(i,j,k) += tend_qc * dt_sub;
 
                 // Update number concentrations
                 nr(i,j,k) += tend_nr * dt_sub;
                 ns(i,j,k) += tend_ns * dt_sub;
                 ng(i,j,k) += tend_ng * dt_sub;
+                ni(i,j,k) += tend_ni * dt_sub;
+                nc(i,j,k) += tend_nc * dt_sub;
 
                 // Floor values to prevent negative concentrations
                 qpr(i,j,k) = std::max(qpr(i,j,k), 0.0);
@@ -326,6 +368,14 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 ng(i,j,k) = std::max(ng(i,j,k), 0.0);
 
                 // Set very small values to zero
+                if (qci(i,j,k) < m_qsmall) {
+                    qci(i,j,k) = 0.0;
+                    ni(i,j,k) = 0.0;
+                }
+                if (qcl(i,j,k) < m_qsmall) {
+                    qcl(i,j,k) = 0.0;
+                    nc(i,j,k) = 0.0;
+                }
                 if (qpr(i,j,k) < m_qsmall) {
                     qpr(i,j,k) = 0.0;
                     nr(i,j,k) = 0.0;
@@ -348,12 +398,12 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
                         // Accumulate precipitation at the surface (bottom of domain)
                         rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
-                        snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
+                        snow_arr(i,j,klo) += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
                         graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
 
-                        // Accumulate totals for output
-                        rain_accum += flux_qr(i,j,klo) * dt_sub;
-                        snow_accum += flux_qs(i,j,klo) * dt_sub;
+                        // Accumulate totals for output (includes cloud water/ice)
+                        rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
+                        snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
                         graup_accum += flux_qg(i,j,klo) * dt_sub;
                     }
                 }
