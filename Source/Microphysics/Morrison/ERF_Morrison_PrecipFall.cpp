@@ -488,7 +488,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                     tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                 }
 
-                if (k > klo) {
+    if (k > klo && k < khi) {  // Add flux from below only if not top layer
                     tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
