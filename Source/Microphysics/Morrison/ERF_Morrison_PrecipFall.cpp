@@ -323,7 +323,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             }
         }
     }
-
+    
     //----------------------------------------------------------------------
     // Calculate number of sub-timesteps needed for stability - matches WRF approach
     //----------------------------------------------------------------------
@@ -342,89 +342,43 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         // Limit to maximum allowed number of substeps
         num_split_steps = std::max(1, std::min(num_split_steps, max_split_steps));
     }
-    
-    // Duration of each substep
-    const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
 
+// Calculate duration of each substep
+const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
 
-//------------------------------------------------------------------
-// Calculate mass and number fluxes at cell interfaces
-// Flux = fall_speed * mixing_ratio * air_density
-// This maintains proper conservation during sedimentation
-//------------------------------------------------------------------
-for (int k = klo; k < khi; ++k) {
-    amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
-        const int k = k_local + klo;  // Adjust k to global index
-        
-        if (k < khi) {  // Skip the top boundary
-            //--------------------------------------------------------------
-            // Rain fallout
-            //--------------------------------------------------------------
-            if (qpr(i,j,k) > m_qsmall || qpr(i,j,k) >= 0.0) {
-                // Use the pre-calculated fall speeds (fr, fnr) to compute fluxes
-                flux_qr(i,j,k) = fr(i,j,k) * qpr(i,j,k) * rho(i,j,k);
-                flux_nr(i,j,k) = fnr(i,j,k) * nr(i,j,k) * rho(i,j,k);
-            }
+// Initialize flux arrays
+amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+    flux_qr(i,j,k) = 0.0;
+    flux_qs(i,j,k) = 0.0;
+    flux_qg(i,j,k) = 0.0;
+    flux_qi(i,j,k) = 0.0;
+    flux_qc(i,j,k) = 0.0;
+    flux_nr(i,j,k) = 0.0;
+    flux_ns(i,j,k) = 0.0;
+    flux_ng(i,j,k) = 0.0;
+    flux_ni(i,j,k) = 0.0;
+    flux_nc(i,j,k) = 0.0;
+});
 
-            //--------------------------------------------------------------
-            // Snow fallout
-            //--------------------------------------------------------------
-            if (qps(i,j,k) > m_qsmall || qps(i,j,k) >= 0.0) {
-                // Use the pre-calculated fall speeds (fs, fns) to compute fluxes
-                flux_qs(i,j,k) = fs(i,j,k) * qps(i,j,k) * rho(i,j,k);
-                flux_ns(i,j,k) = fns(i,j,k) * ns(i,j,k) * rho(i,j,k);
-            }
-
-            //--------------------------------------------------------------
-            // Graupel fallout
-            //--------------------------------------------------------------
-            if (qpg(i,j,k) > m_qsmall || qpg(i,j,k) >= 0.0) {
-                // Use the pre-calculated fall speeds (fg, fng) to compute fluxes
-                flux_qg(i,j,k) = fg(i,j,k) * qpg(i,j,k) * rho(i,j,k);
-                flux_ng(i,j,k) = fng(i,j,k) * ng(i,j,k) * rho(i,j,k);
-            }
-
-            //--------------------------------------------------------------
-            // Cloud ice fallout
-            //--------------------------------------------------------------
-            if (qci(i,j,k) > m_qsmall || qci(i,j,k) >= 0.0) {
-                // Use the pre-calculated fall speeds (fi, fni) to compute fluxes
-                flux_qi(i,j,k) = fi(i,j,k) * qci(i,j,k) * rho(i,j,k);
-                flux_ni(i,j,k) = fni(i,j,k) * ni(i,j,k) * rho(i,j,k);
-            }
-
-            //--------------------------------------------------------------
-            // Cloud water fallout
-            //--------------------------------------------------------------
-            if (qcl(i,j,k) > m_qsmall || qcl(i,j,k) >= 0.0) {
-                // Use the pre-calculated fall speeds (fc, fnc) to compute fluxes
-                flux_qc(i,j,k) = fc(i,j,k) * qcl(i,j,k) * rho(i,j,k);
-                flux_nc(i,j,k) = fnc(i,j,k) * nc(i,j,k) * rho(i,j,k);
-            }
-        }
-    });
-}
-// Check for subsaturation and remove small amounts of cloud/precipitation water
-// This follows WRF approach where small hydrometeors are evaporated/sublimated in subsaturated conditions
+// Apply subsaturation check before entering the substep loop
 amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
     // Calculate saturation ratios
-    amrex::Real evs = std::min(0.99*pres(i,j,k), 
+    amrex::Real evs = std::min(0.99*pres(i,j,k),
                                calc_saturation_vapor_pressure(tabs(i,j,k), 0)); // Water saturation
     amrex::Real eis = std::min(0.99*pres(i,j,k), calc_saturation_vapor_pressure(tabs(i,j,k), 1));
-    
+
     // Make sure ice saturation doesn't exceed water saturation near freezing
     if (eis > evs) eis = evs;
-    
+
     // Calculate saturation mixing ratios
     amrex::Real qvs = 0.622*evs/(pres(i,j,k)-evs);  // Water saturation mixing ratio
     amrex::Real qvi = 0.622*eis/(pres(i,j,k)-eis);  // Ice saturation mixing ratio
-    
+
     // Calculate saturation ratios
     amrex::Real qvqvs = qv3d(i,j,k)/qvs;  // Saturation ratio for liquid
     amrex::Real qvqvsi = qv3d(i,j,k)/qvi; // Saturation ratio for ice
-    
+
     // At subsaturation, remove small amounts of cloud/precip water
-    // This follows WRF implementation with threshold of 1.E-8
     if (qvqvs < 0.9) {
         // For liquid water (rain and cloud water)
         if (qpr(i,j,k) < 1.E-8) {
@@ -440,7 +394,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             nc(i,j,k) = 0.0;
         }
     }
-    
+
     if (qvqvsi < 0.9) {
         // For ice species
         if (qci(i,j,k) < 1.E-8) {
@@ -463,118 +417,180 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
         }
     }
 });
-            //------------------------------------------------------------------
-            // Apply sedimentation tendencies to state variables (lines ~3902-4000)
-            //------------------------------------------------------------------
-            amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-                // Calculate the tendencies due to sedimentation
-                amrex::Real tend_qr = 0.0, tend_qs = 0.0, tend_qg = 0.0;
-                amrex::Real tend_nr = 0.0, tend_ns = 0.0, tend_ng = 0.0;
-                amrex::Real tend_qi = 0.0, tend_ni = 0.0;
-                amrex::Real tend_qc = 0.0, tend_nc = 0.0;
 
-                // Flux divergence for interior cells
-                if (k < khi) {
-                    tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+// Begin substep loop for sedimentation
+for (int ss = 0; ss < num_split_steps; ++ss) {
+    // Calculate mass and number fluxes at cell interfaces for this substep
+    for (int k = klo; k < khi; ++k) {
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
+            const int k = k_local + klo;  // Adjust k to global index
 
-                    tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            if (k < khi) {  // Skip the top boundary
+                //--------------------------------------------------------------
+                // Rain fallout - recalculate fluxes based on current state
+                //--------------------------------------------------------------
+                if (qpr(i,j,k) > m_qsmall || qpr(i,j,k) >= 0.0) {
+                    flux_qr(i,j,k) = fr(i,j,k) * qpr(i,j,k) * rho(i,j,k);
+                    flux_nr(i,j,k) = fnr(i,j,k) * nr(i,j,k) * rho(i,j,k);
+                } else {
+                    flux_qr(i,j,k) = 0.0;
+                    flux_nr(i,j,k) = 0.0;
                 }
 
-    if (k > klo && k < khi) {  // Add flux from below only if not top layer
-                    tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-
-                    tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                //--------------------------------------------------------------
+                // Snow fallout - recalculate fluxes based on current state
+                //--------------------------------------------------------------
+                if (qps(i,j,k) > m_qsmall || qps(i,j,k) >= 0.0) {
+                    flux_qs(i,j,k) = fs(i,j,k) * qps(i,j,k) * rho(i,j,k);
+                    flux_ns(i,j,k) = fns(i,j,k) * ns(i,j,k) * rho(i,j,k);
+                } else {
+                    flux_qs(i,j,k) = 0.0;
+                    flux_ns(i,j,k) = 0.0;
                 }
 
-                // Apply tendencies
-                qpr(i,j,k) += tend_qr * dt_sub;
-                qps(i,j,k) += tend_qs * dt_sub;
-                qpg(i,j,k) += tend_qg * dt_sub;
-                qci(i,j,k) += tend_qi * dt_sub;
-                qcl(i,j,k) += tend_qc * dt_sub;
+                //--------------------------------------------------------------
+                // Graupel fallout - recalculate fluxes based on current state
+                //--------------------------------------------------------------
+                if (qpg(i,j,k) > m_qsmall || qpg(i,j,k) >= 0.0) {
+                    flux_qg(i,j,k) = fg(i,j,k) * qpg(i,j,k) * rho(i,j,k);
+                    flux_ng(i,j,k) = fng(i,j,k) * ng(i,j,k) * rho(i,j,k);
+                } else {
+                    flux_qg(i,j,k) = 0.0;
+                    flux_ng(i,j,k) = 0.0;
+                }
 
-                // Update number concentrations
-                nr(i,j,k) += tend_nr * dt_sub;
-                ns(i,j,k) += tend_ns * dt_sub;
-                ng(i,j,k) += tend_ng * dt_sub;
-                ni(i,j,k) += tend_ni * dt_sub;
-                nc(i,j,k) += tend_nc * dt_sub;
-#if 0
-                // Floor values to prevent negative concentrations
-                qpr(i,j,k) = std::max(qpr(i,j,k), 0.0);
-                qps(i,j,k) = std::max(qps(i,j,k), 0.0);
-                qpg(i,j,k) = std::max(qpg(i,j,k), 0.0);
-                qci(i,j,k) = std::max(qci(i,j,k), 0.0);
-                qcl(i,j,k) = std::max(qcl(i,j,k), 0.0);
-                nr(i,j,k) = std::max(nr(i,j,k), 0.0);
-                ns(i,j,k) = std::max(ns(i,j,k), 0.0);
-                ng(i,j,k) = std::max(ng(i,j,k), 0.0);
-                ni(i,j,k) = std::max(ni(i,j,k), 0.0);
-                nc(i,j,k) = std::max(nc(i,j,k), 0.0);
+                //--------------------------------------------------------------
+                // Cloud ice fallout - recalculate fluxes based on current state
+                //--------------------------------------------------------------
+                if (qci(i,j,k) > m_qsmall || qci(i,j,k) >= 0.0) {
+                    flux_qi(i,j,k) = fi(i,j,k) * qci(i,j,k) * rho(i,j,k);
+                    flux_ni(i,j,k) = fni(i,j,k) * ni(i,j,k) * rho(i,j,k);
+                } else {
+                    flux_qi(i,j,k) = 0.0;
+                    flux_ni(i,j,k) = 0.0;
+                }
 
-                // Set very small values to zero
-                if (qpr(i,j,k) < m_qsmall) {
-                    qpr(i,j,k) = 0.0;
-                    nr(i,j,k) = 0.0;
-                }
-                if (qps(i,j,k) < m_qsmall) {
-                    qps(i,j,k) = 0.0;
-                    ns(i,j,k) = 0.0;
-                }
-                if (qpg(i,j,k) < m_qsmall) {
-                    qpg(i,j,k) = 0.0;
-                    ng(i,j,k) = 0.0;
-                }
-                if (qci(i,j,k) < m_qsmall) {
-                    qci(i,j,k) = 0.0;
-                    ni(i,j,k) = 0.0;
-                }
-                if (qcl(i,j,k) < m_qsmall) {
-                    qcl(i,j,k) = 0.0;
-                    nc(i,j,k) = 0.0;
-                }
-#endif
-            });
-
-            //------------------------------------------------------------------
-            // Update accumulated precipitation at surface (lines ~4002-4006)
-            //------------------------------------------------------------------
-            if (klo == 0) {  // Only if domain includes the surface
-                for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
-                    for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
-                        // Accumulate precipitation at the surface (bottom of domain)
-                        rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
-                        snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
-                        graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
-                        
-                        // Also accumulate cloud water and cloud ice sedimentation
-                        rain_arr(i,j,klo) += flux_qc(i,j,klo) * dt_sub;
-                        snow_arr(i,j,klo) += flux_qi(i,j,klo) * dt_sub;
-
-                        // Accumulate totals for output (includes all precipitation)
-                        rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
-                        snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
-                        graup_accum += flux_qg(i,j,klo) * dt_sub;
-                    }
+                //--------------------------------------------------------------
+                // Cloud water fallout - recalculate fluxes based on current state
+                //--------------------------------------------------------------
+                if (qcl(i,j,k) > m_qsmall || qcl(i,j,k) >= 0.0) {
+                    flux_qc(i,j,k) = fc(i,j,k) * qcl(i,j,k) * rho(i,j,k);
+                    flux_nc(i,j,k) = fnc(i,j,k) * nc(i,j,k) * rho(i,j,k);
+                } else {
+                    flux_qc(i,j,k) = 0.0;
+                    flux_nc(i,j,k) = 0.0;
                 }
             }
+        });
+    }
 
+    // Apply sedimentation tendencies to state variables for this substep
+    amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+        // Calculate the tendencies due to sedimentation
+        amrex::Real tend_qr = 0.0, tend_qs = 0.0, tend_qg = 0.0;
+        amrex::Real tend_nr = 0.0, tend_ns = 0.0, tend_ng = 0.0;
+        amrex::Real tend_qi = 0.0, tend_ni = 0.0;
+        amrex::Real tend_qc = 0.0, tend_nc = 0.0;
+
+        // Flux divergence for interior cells
+        if (k < khi) {
+            tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+
+            tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+        }
+
+        if (k > klo && k < khi) {  // Add flux from below only if not top layer
+            tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+
+            tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+            tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+        }
+
+        // Apply tendencies for this substep
+        qpr(i,j,k) += tend_qr * dt_sub;
+        qps(i,j,k) += tend_qs * dt_sub;
+        qpg(i,j,k) += tend_qg * dt_sub;
+        qci(i,j,k) += tend_qi * dt_sub;
+        qcl(i,j,k) += tend_qc * dt_sub;
+
+        // Update number concentrations
+        nr(i,j,k) += tend_nr * dt_sub;
+        ns(i,j,k) += tend_ns * dt_sub;
+        ng(i,j,k) += tend_ng * dt_sub;
+        ni(i,j,k) += tend_ni * dt_sub;
+        nc(i,j,k) += tend_nc * dt_sub;
+
+        // Floor values to prevent negative concentrations
+        qpr(i,j,k) = std::max(qpr(i,j,k), 0.0);
+        qps(i,j,k) = std::max(qps(i,j,k), 0.0);
+        qpg(i,j,k) = std::max(qpg(i,j,k), 0.0);
+        qci(i,j,k) = std::max(qci(i,j,k), 0.0);
+        qcl(i,j,k) = std::max(qcl(i,j,k), 0.0);
+        nr(i,j,k) = std::max(nr(i,j,k), 0.0);
+        ns(i,j,k) = std::max(ns(i,j,k), 0.0);
+        ng(i,j,k) = std::max(ng(i,j,k), 0.0);
+        ni(i,j,k) = std::max(ni(i,j,k), 0.0);
+        nc(i,j,k) = std::max(nc(i,j,k), 0.0);
+
+        // Set very small values to zero
+        if (qpr(i,j,k) < m_qsmall) {
+            qpr(i,j,k) = 0.0;
+            nr(i,j,k) = 0.0;
+        }
+        if (qps(i,j,k) < m_qsmall) {
+            qps(i,j,k) = 0.0;
+            ns(i,j,k) = 0.0;
+        }
+        if (qpg(i,j,k) < m_qsmall) {
+            qpg(i,j,k) = 0.0;
+            ng(i,j,k) = 0.0;
+        }
+        if (qci(i,j,k) < m_qsmall) {
+            qci(i,j,k) = 0.0;
+            ni(i,j,k) = 0.0;
+        }
+        if (qcl(i,j,k) < m_qsmall) {
+            qcl(i,j,k) = 0.0;
+            nc(i,j,k) = 0.0;
+        }
+    });
+
+    // Update accumulated precipitation at surface for this substep
+    if (klo == 0) {  // Only if domain includes the surface
+        for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
+            for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+                // Accumulate precipitation at the surface (bottom of domain)
+                rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
+                snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
+                graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
+
+                // Also accumulate cloud water and cloud ice sedimentation
+                rain_arr(i,j,klo) += flux_qc(i,j,klo) * dt_sub;
+                snow_arr(i,j,klo) += flux_qi(i,j,klo) * dt_sub;
+
+                // Accumulate totals for output (includes all precipitation)
+                rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
+                snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
+                graup_accum += flux_qg(i,j,klo) * dt_sub;
+            }
+        }
+    }
+ }
         //----------------------------------------------------------------------
         // Update total precipitation and snow fields (for diagnostic output)
         //----------------------------------------------------------------------
