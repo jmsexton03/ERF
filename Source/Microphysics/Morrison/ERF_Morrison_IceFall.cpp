@@ -12,7 +12,7 @@
  * original WRF Fortran code.
  */
 void 
-Morrison::IceFall(const SolverChoice& sc)
+Morrison::IceFall(const SolverChoice& /*sc*/)
 {
     BL_PROFILE("Morrison::IceFall()");
     amrex::Print()<<"Got to IceFall"<<std::endl;
@@ -30,19 +30,15 @@ Morrison::IceFall(const SolverChoice& sc)
         
         // Get data arrays
         auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
-        auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
         auto const& hydro_qv = mic_fab_vars[MicVar_Morr::qv]->array(mfi);
         auto const& thermo_rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
         auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
         auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
         auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
-        auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
         auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
-        auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
         auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
         auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
-        auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
 
         auto const& rho_arr = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto const& qci_arr = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
