@@ -18,7 +18,7 @@ amrex::Real
 Morrison::calculateSupersaturation(const amrex::Real w,
                                 const amrex::Real T,
                                 const amrex::Real P,
-                                const amrex::Real qv) const
+                                const amrex::Real /* qv */) const
 {
     // Constants
     const amrex::Real g = 9.81;       // Gravity (m/s^2)
@@ -34,7 +34,7 @@ Morrison::calculateSupersaturation(const amrex::Real w,
     amrex::Real qs = 0.622 * es / (P - es);
 
     // Calculate derivative of saturation mixing ratio with respect to temperature
-    amrex::Real dqsdt = (Lv * qs) / (Rv * T * T);
+    [[maybe_unused]] amrex::Real dqsdt = (Lv * qs) / (Rv * T * T);
 
     // Calculate supersaturation using simplified formula from Abdul-Razzak et al. (1998)
     amrex::Real alpha = g * w / (Ra * T);
@@ -97,13 +97,11 @@ Morrison::ComplementaryErrorFunction(const amrex::Real x) const
  * MORR_TWO_MOMENT_MICRO subroutine.
  */
 void
-Morrison::Precip(const SolverChoice& sc)
+Morrison::Precip(const SolverChoice& /* sc */)
 {
     BL_PROFILE("Morrison::Precip()");
 
     // Constants for microphysical processes
-    constexpr amrex::Real one = 1.0;
-    constexpr amrex::Real zero = 0.0;
     constexpr amrex::Real t_freezing = 273.15; // Freezing point of water in K
     constexpr amrex::Real qsmall = 1.0e-6;
 
@@ -139,24 +137,7 @@ Morrison::Precip(const SolverChoice& sc)
         auto const& qp_array = mic_fab_vars[MicVar_Morr::qp]->array(mfi);
         auto const& theta_array = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
 
-        // Component indices for thermodynamic variables
-        const int t_comp = 0;   // Temperature
-        const int p_comp = 1;   // Pressure
-        const int qv_comp = 2;  // Water vapor mixing ratio
-        const int rho_comp = 3; // Density
-        
-        // Component indices for hydrometeors
-        const int qc_comp = 0;  // Cloud water
-        const int qr_comp = 1;  // Rain
-        const int qi_comp = 2;  // Cloud ice
-        const int qs_comp = 3;  // Snow
-        const int qg_comp = 4;  // Graupel
-        const int nc_comp = 5;  // Cloud droplet number
-        const int nr_comp = 6;  // Rain number
-        const int ni_comp = 7;  // Cloud ice number
-        const int ns_comp = 8;  // Snow number
-        const int ng_comp = 9;  // Graupel number
-        
+         
         // Parallel execution over the box
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Variables for storing process rates
@@ -166,7 +147,7 @@ Morrison::Precip(const SolverChoice& sc)
             amrex::Real pre, prds, prg, evpms, evpmg;
             amrex::Real nmults, nmultr, qmults, qmultr;
             amrex::Real nmultg, nmultrg, qmultg, qmultrg;
-            amrex::Real pccn; // CCN activation rate
+            [[maybe_unused]] amrex::Real pccn; // CCN activation rate
             amrex::Real npsacwg;    // No idea
             amrex::Real prci;    // No idea
             amrex::Real prai;    // No idea
@@ -359,7 +340,6 @@ Morrison::Precip(const SolverChoice& sc)
                 // Calculate number conversion rates
                 nprc1 = prc / m_cons29;
                 nprc = prc / (qc / nc);
-//printf("%d %d %d\t%24.24g, %24.24g,  %24.24g, %24.24g, %24.24g, %24.24g\n",i,j,k,         hydro_nc(i,j,k) , qc ,nc ,rho ,nprc1, nprc);
 #endif
                 
                 // Limit by available cloud water
@@ -486,11 +466,11 @@ Morrison::Precip(const SolverChoice& sc)
                             amrex::Real unr = m_ar * m_cons6 / std::pow(lamr, m_br);
                             
                             // Density correction
-                            const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
-                            ums = amrex::min(ums, 1.2 * dum);
-                            uns = amrex::min(uns, 1.2 * dum);
-                            umr = amrex::min(umr, 9.1 * dum);
-                            unr = amrex::min(unr, 9.1 * dum);
+                            const amrex::Real dum_density0 = std::pow(m_rhosu / rho, 0.54);
+                            ums = amrex::min(ums, 1.2 * dum_density0);
+                            uns = amrex::min(uns, 1.2 * dum_density0);
+                            umr = amrex::min(umr, 9.1 * dum_density0);
+                            unr = amrex::min(unr, 9.1 * dum_density0);
                             
                             // Calculate collection rates
                             pracs = m_cons41 * (std::sqrt(std::pow(1.2*umr-0.95*ums, 2) + 
@@ -635,8 +615,8 @@ Morrison::Precip(const SolverChoice& sc)
                     amrex::Real ums = m_as * m_cons3 / std::pow(lams, m_bs);
 
                     // Density correction (already done in PrecipFall)
-                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
-                    ums = amrex::min(ums, 1.2 * dum);
+                    const amrex::Real dum_density1 = std::pow(m_rhosu / rho, 0.54);
+                    ums = amrex::min(ums, 1.2 * dum_density1);
 
                     // Calculate collection rate of cloud water by snow (already done in psacws)
                     psacws = m_cons13 * m_as * qc * rho * n0s / std::pow(lams, m_bs + 3.0);
@@ -796,9 +776,9 @@ Morrison::Precip(const SolverChoice& sc)
                     amrex::Real umr = m_ar * m_cons4 / std::pow(lamr, m_br);
 
                     // Density correction (already done in PrecipFall)
-                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
-                    ums = amrex::min(ums, 1.2 * dum);
-                    umr = amrex::min(umr, 9.1 * dum);
+                    const amrex::Real dum_density2 = std::pow(m_rhosu / rho, 0.54);
+                    ums = amrex::min(ums, 1.2 * dum_density2);
+                    umr = amrex::min(umr, 9.1 * dum_density2);
 
                     // Calculate collection rate of rain by snow (already done in pracs)
                     // We reuse the pracs calculation, but it represents
@@ -836,9 +816,9 @@ Morrison::Precip(const SolverChoice& sc)
                     amrex::Real umr = m_ar * m_cons4 / std::pow(lamr, m_br);
 
                     // Density correction (already done in PrecipFall)
-                    const amrex::Real dum = std::pow(m_rhosu / rho, 0.54);
-                    umg = amrex::min(umg, 20.0 * dum);
-                    umr = amrex::min(umr, 9.1 * dum);
+                    const amrex::Real dum_density3 = std::pow(m_rhosu / rho, 0.54);
+                    umg = amrex::min(umg, 20.0 * dum_density3);
+                    umr = amrex::min(umr, 9.1 * dum_density3);
 
                     // Calculate collection rate of rain by graupel (already done in pracg)
                     // We reuse the pracg calculation.
@@ -876,7 +856,7 @@ Morrison::Precip(const SolverChoice& sc)
             const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;  // Latent heat of vaporization
             const amrex::Real xxls = 3.15e6 - 2370.0 * temp + 0.3337e6;  // Latent heat of sublimation
             const amrex::Real xlf = xxls - xxlv;  // Latent heat of fusion
-            const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
+            [[maybe_unused]] const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
             
             // Update state variables with computed tendencies
             // Water vapor
