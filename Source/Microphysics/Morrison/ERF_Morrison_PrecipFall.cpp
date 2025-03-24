@@ -354,7 +354,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 // Flux = fall_speed * mixing_ratio * air_density
 // This maintains proper conservation during sedimentation
 //------------------------------------------------------------------
-for (int k = klo; k < khi; ++k) {
+for (int k_global = klo; k_global < khi; ++k_global) {
     amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
         const int k = k_local + klo;  // Adjust k to global index
         
