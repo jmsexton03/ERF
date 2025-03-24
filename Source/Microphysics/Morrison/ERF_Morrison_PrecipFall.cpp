@@ -58,8 +58,8 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 
         // Get arrays for accumulated precipitation
         auto const& rain_arr = mic_fab_vars[MicVar_Morr::rain_accum]->array(mfi);
-        auto const& snow_arr = mic_fab_vars[MicVar_Morr::snow_accum]->array(mfi);
-        auto const& graup_arr = mic_fab_vars[MicVar_Morr::graup_accum]->array(mfi);
+        [[maybe_unused]] auto const& snow_arr = mic_fab_vars[MicVar_Morr::snow_accum]->array(mfi);
+        [[maybe_unused]] auto const& graup_arr = mic_fab_vars[MicVar_Morr::graup_accum]->array(mfi);
 
         // Create containers for sedimentation tendencies
         amrex::FArrayBox qrsten_fab(box, 1);  // Rain mixing ratio tendency
@@ -96,25 +96,25 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 
         // Create flux arrays for all species
         amrex::FArrayBox flux_qr_fab(box, 1); // Rain mass flux
-        amrex::FArrayBox flux_qs_fab(box, 1); // Snow mass flux
-        amrex::FArrayBox flux_qg_fab(box, 1); // Graupel mass flux
-        amrex::FArrayBox flux_qi_fab(box, 1); // Cloud ice mass flux
+        [[maybe_unused]] amrex::FArrayBox flux_qs_fab(box, 1); // Snow mass flux
+        [[maybe_unused]] amrex::FArrayBox flux_qg_fab(box, 1); // Graupel mass flux
+        [[maybe_unused]] amrex::FArrayBox flux_qi_fab(box, 1); // Cloud ice mass flux
         amrex::FArrayBox flux_qc_fab(box, 1); // Cloud water mass flux
         amrex::FArrayBox flux_nr_fab(box, 1); // Rain number flux
-        amrex::FArrayBox flux_ns_fab(box, 1); // Snow number flux
-        amrex::FArrayBox flux_ng_fab(box, 1); // Graupel number flux
-        amrex::FArrayBox flux_ni_fab(box, 1); // Cloud ice number flux
+        [[maybe_unused]] amrex::FArrayBox flux_ns_fab(box, 1); // Snow number flux
+        [[maybe_unused]] amrex::FArrayBox flux_ng_fab(box, 1); // Graupel number flux
+        [[maybe_unused]] amrex::FArrayBox flux_ni_fab(box, 1); // Cloud ice number flux
         amrex::FArrayBox flux_nc_fab(box, 1); // Cloud water number flux
 
         auto const& flux_qr = flux_qr_fab.array();
-        auto const& flux_qs = flux_qs_fab.array();
-        auto const& flux_qg = flux_qg_fab.array();
-        auto const& flux_qi = flux_qi_fab.array();
+        [[maybe_unused]] auto const& flux_qs = flux_qs_fab.array();
+        [[maybe_unused]] auto const& flux_qg = flux_qg_fab.array();
+        [[maybe_unused]] auto const& flux_qi = flux_qi_fab.array();
         auto const& flux_qc = flux_qc_fab.array();
         auto const& flux_nr = flux_nr_fab.array();
-        auto const& flux_ns = flux_ns_fab.array();
-        auto const& flux_ng = flux_ng_fab.array();
-        auto const& flux_ni = flux_ni_fab.array();
+        [[maybe_unused]] auto const& flux_ns = flux_ns_fab.array();
+        [[maybe_unused]] auto const& flux_ng = flux_ng_fab.array();
+        [[maybe_unused]] auto const& flux_ni = flux_ni_fab.array();
         auto const& flux_nc = flux_nc_fab.array();
 
 //----------------------------------------------------------------------
@@ -422,8 +422,8 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
     amrex::Real qvi = 0.622*eis/(pres(i,j,k)-eis);  // Ice saturation mixing ratio
     
     // Calculate saturation ratios
-    amrex::Real qvqvs = qv3d(i,j,k)/qvs;  // Saturation ratio for liquid
-    amrex::Real qvqvsi = qv3d(i,j,k)/qvi; // Saturation ratio for ice
+    [[maybe_unused]] amrex::Real qvqvs = qv3d(i,j,k)/qvs;  // Saturation ratio for liquid
+    [[maybe_unused]] amrex::Real qvqvsi = qv3d(i,j,k)/qvi; // Saturation ratio for ice
     
     // At subsaturation, remove small amounts of cloud/precip water
     // This follows WRF implementation with threshold of 1.E-8
@@ -471,9 +471,14 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             //------------------------------------------------------------------
             amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 // Calculate the tendencies due to sedimentation
-                amrex::Real tend_qr = 0.0, tend_qs = 0.0, tend_qg = 0.0;
-                amrex::Real tend_nr = 0.0, tend_ns = 0.0, tend_ng = 0.0;
-                amrex::Real tend_qi = 0.0, tend_ni = 0.0;
+                amrex::Real tend_qr = 0.0;
+                [[maybe_unused]] amrex::Real tend_qs = 0.0;
+                [[maybe_unused]] amrex::Real tend_qg = 0.0;
+                amrex::Real tend_nr = 0.0;
+                [[maybe_unused]] amrex::Real tend_ns = 0.0;
+                [[maybe_unused]] amrex::Real tend_ng = 0.0;
+                [[maybe_unused]] amrex::Real tend_qi = 0.0;
+                [[maybe_unused]] amrex::Real tend_ni = 0.0;
                 amrex::Real tend_qc = 0.0, tend_nc = 0.0;
 
                 // Flux divergence for interior cells

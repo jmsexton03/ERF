@@ -102,15 +102,15 @@ Morrison::Precip(const SolverChoice& /* sc */)
     BL_PROFILE("Morrison::Precip()");
 
     // Constants for microphysical processes
-    constexpr amrex::Real t_freezing = 273.15; // Freezing point of water in K
+    [[maybe_unused]] constexpr amrex::Real t_freezing = 273.15; // Freezing point of water in K
     constexpr amrex::Real qsmall = 1.0e-6;
 
     // Temperature thresholds for HM-process (K)
-    constexpr amrex::Real t_hm_max = 270.16;
-    constexpr amrex::Real t_hm_min = 265.16;
+    [[maybe_unused]] constexpr amrex::Real t_hm_max = 270.16;
+    [[maybe_unused]] constexpr amrex::Real t_hm_min = 265.16;
     
     // Mass of individual splinters (kg)
-    const amrex::Real mmult = 4.0/3.0 * M_PI * m_rhoi * std::pow(5.0e-6, 3);
+    [[maybe_unused]] const amrex::Real mmult = 4.0/3.0 * M_PI * m_rhoi * std::pow(5.0e-6, 3);
     amrex::Real rdOcp    = m_rdOcp;
 
     // Loop through grids
@@ -141,19 +141,34 @@ Morrison::Precip(const SolverChoice& /* sc */)
         // Parallel execution over the box
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Variables for storing process rates
-            amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
-            amrex::Real pracs, npracs, psacwg, pracg, npracg, pgsacw, pgracs;
-            amrex::Real nscng, ngracs, praci, piacr, niacr, piacrs, niacrs, pracis;
-            amrex::Real pre, prds, prg, evpms, evpmg;
-            amrex::Real nmults, nmultr, qmults, qmultr;
-            amrex::Real nmultg, nmultrg, qmultg, qmultrg;
+amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
+            amrex::Real pracs, npracs, psacwg, pracg, npracg;
+            [[maybe_unused]] amrex::Real pgsacw;
+            [[maybe_unused]] amrex::Real pgracs;
+            [[maybe_unused]] amrex::Real nscng;
+            [[maybe_unused]] amrex::Real ngracs;
+            [[maybe_unused]] amrex::Real praci;
+            amrex::Real piacr, niacr, piacrs, niacrs;
+            [[maybe_unused]] amrex::Real pracis;
+            amrex::Real pre;
+            [[maybe_unused]] amrex::Real prds;
+            [[maybe_unused]] amrex::Real prg;
+            amrex::Real evpms, evpmg;
+            amrex::Real nmults;
+            [[maybe_unused]] amrex::Real nmultr;
+            amrex::Real qmults;
+            [[maybe_unused]] amrex::Real qmultr;
+            amrex::Real nmultg;
+            [[maybe_unused]] amrex::Real nmultrg;
+            amrex::Real qmultg;
+            [[maybe_unused]] amrex::Real qmultrg;
             [[maybe_unused]] amrex::Real pccn; // CCN activation rate
-            amrex::Real npsacwg;    // No idea
-            amrex::Real prci;    // No idea
-            amrex::Real prai;    // No idea
-            amrex::Real psacr;    // No idea
-            amrex::Real nprci;    // No idea
-            amrex::Real nprai;    // No idea
+            [[maybe_unused]] amrex::Real npsacwg;    // No idea
+            [[maybe_unused]] amrex::Real prci;    // No idea
+            [[maybe_unused]] amrex::Real prai;    // No idea
+            [[maybe_unused]] amrex::Real psacr;    // No idea
+            [[maybe_unused]] amrex::Real nprci;    // No idea
+            [[maybe_unused]] amrex::Real nprai;    // No idea
 
             // Get local variables
             const amrex::Real temp = thermo_tabs(i,j,k);

@@ -47,20 +47,20 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
         ParallelFor(box3d, [=] AMREX_GPU_DEVICE (int i, int j, int k)
         {
             // Cloud phase adjustments and saturation
-            Real temp = tabs_array(i,j,k);
-            Real pres = pres_array(i,j,k);
-            Real rho  = rho_array(i,j,k);
+            [[maybe_unused]] Real temp = tabs_array(i,j,k);
+            [[maybe_unused]] Real pres = pres_array(i,j,k);
+            [[maybe_unused]] Real rho  = rho_array(i,j,k);
             Real qv   = qv_array(i,j,k);
             Real qc   = qc_array(i,j,k);
             Real qi   = qi_array(i,j,k);
-            Real qg   = qg_array(i,j,k);
-            Real qr   = qr_array(i,j,k);
-            Real nc   = nc_array(i,j,k);
-            Real nr   = nr_array(i,j,k);
-            Real ni   = ni_array(i,j,k);
-            Real qs   = qs_array(i,j,k);
-            Real ns   = ns_array(i,j,k);
-            Real ng   = ng_array(i,j,k);
+            [[maybe_unused]] Real qg   = qg_array(i,j,k);
+            [[maybe_unused]] Real qr   = qr_array(i,j,k);
+            [[maybe_unused]] Real nc   = nc_array(i,j,k);
+            [[maybe_unused]] Real nr   = nr_array(i,j,k);
+            [[maybe_unused]] Real ni   = ni_array(i,j,k);
+            [[maybe_unused]] Real qs   = qs_array(i,j,k);
+            [[maybe_unused]] Real ns   = ns_array(i,j,k);
+            [[maybe_unused]] Real ng   = ng_array(i,j,k);
 
 #if 0
             Real w_local = w_array(i,j,k);
