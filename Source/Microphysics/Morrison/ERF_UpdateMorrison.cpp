@@ -101,8 +101,8 @@ Morrison::Advance (const amrex::Real& dt_advance,
 }
 
 void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
-                                      const amrex::Real xocm,
-                                      const amrex::Real xobm,
+                                      const amrex::Real /*xocm*/,
+                                      const amrex::Real /*xobm*/,
                                       const amrex::Real fmelt,
                                       const bool melt_outside,
                                       const std::complex<amrex::Real>& m_w_0,
@@ -110,11 +110,11 @@ void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
                                       const amrex::Real lambda_radar,
                                       amrex::Real& cback,
                                       const std::string& mixingrulestring,
-                                      const std::string& matrixstring,
-                                      const std::string& inclusionstring,
+                                      const std::string& /*matrixstring*/,
+                                      const std::string& /*inclusionstring*/,
                                       const std::string& hoststring,
-                                      const std::string& hostmatrixstring,
-                                      const std::string& hostinclusionstring) const
+                                      const std::string& /*hostmatrixstring*/,
+                                      const std::string& /*hostinclusionstring*/) const
 {
     // Calculate particle diameter from mass
     amrex::Real rho_particle;
@@ -159,7 +159,7 @@ void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
     }
 
     // Calculate Rayleigh backscattering cross-section
-    amrex::Real k = 2.0 * m_pi / lambda_radar; // Wavenumber
+    // amrex::Real k = 2.0 * m_pi / lambda_radar; // Wavenumber
     std::complex<amrex::Real> K = (m_eff * m_eff - 1.0) / (m_eff * m_eff + 2.0);
     amrex::Real K_squared = std::norm(K); // |K|^2
 
@@ -184,7 +184,6 @@ Morrison::ComputeRadarReflectivity()
 
         // Get array data
         auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
-        auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
         auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
         auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
         auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
@@ -192,16 +191,6 @@ Morrison::ComputeRadarReflectivity()
         auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
         auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
         auto const& radar = m_radar->array(mfi);
-
-        // Component indices
-        const int t_comp = 0;   // Temperature
-        const int p_comp = 1;   // Pressure
-        const int qr_comp = 1;  // Rain
-        const int qs_comp = 3;  // Snow
-        const int qg_comp = 4;  // Graupel
-        const int nr_comp = 6;  // Rain number
-        const int ns_comp = 8;  // Snow number
-        const int ng_comp = 9;  // Graupel number
 
         // ParallelFor loop over grid
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
@@ -288,7 +277,6 @@ Morrison::ComputeRadarReflectivity()
         auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
         auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
         auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-        auto const& radar = m_radar->array(mfi);
         // Iterate from top down to find the first level where T > 273.15
         // and there's both rain and snow/graupel present.
         for (int k = box.bigEnd(2); k >= box.smallEnd(2); --k) {
@@ -312,24 +300,11 @@ Morrison::ComputeRadarReflectivity()
     if (k_0 != -1) {
         for (MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
             const Box& box = mfi.validbox();
-            auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
-            auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
             auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
             auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
-            auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
             auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
             auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
             auto const& radar = m_radar->array(mfi);
-
-            // Component indices
-            const int t_comp = 0;   // Temperature
-            const int p_comp = 1;   // Pressure
-            const int qr_comp = 1;  // Rain
-            const int qs_comp = 3;  // Snow
-            const int qg_comp = 4;  // Graupel
-            const int nr_comp = 6;  // Rain number
-            const int ns_comp = 8;  // Snow number
-            const int ng_comp = 9;  // Graupel number
 
             amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 // Only process levels below the melting level
@@ -385,7 +360,7 @@ Morrison::ComputeRadarReflectivity()
         }
     }
 }
-
+#if 0
    /**
     * Applies accumulated tendencies to state variables.
     * This function updates the state variables based on the tendencies
@@ -515,7 +490,7 @@ Morrison::ComputeRadarReflectivity()
      *
      * @param[in] sc SolverChoice containing solver configuration
      */
-    void Morrison::SublimationDeposition(const SolverChoice& sc)
+    void Morrison::SublimationDeposition(const SolverChoice& /*sc*/)
     {
         BL_PROFILE("Morrison::SublimationDeposition()");
 
@@ -532,28 +507,9 @@ Morrison::ComputeRadarReflectivity()
             auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
             auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
             auto const& hydro_ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
-            auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);
             auto const& hydro_ns = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
             auto const& hydro_ng = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
             auto const& tend = m_tend->array(mfi);
-
-            // Component indices for thermodynamic variables
-            const int t_comp = 0;   // Temperature
-            const int p_comp = 1;   // Pressure
-            const int qv_comp = 2;  // Water vapor mixing ratio
-            const int rho_comp = 3; // Density
-
-            // Component indices for hydrometeors
-            const int qc_comp = 0;  // Cloud water
-            const int qr_comp = 1;  // Rain
-            const int qi_comp = 2;  // Cloud ice
-            const int qs_comp = 3;  // Snow
-            const int qg_comp = 4;  // Graupel
-            const int nc_comp = 5;  // Cloud droplet number
-            const int nr_comp = 6;  // Rain number
-            const int ni_comp = 7;  // Cloud ice number
-            const int ns_comp = 8;  // Snow number
-            const int ng_comp = 9;  // Graupel number
 
             // Get table data for coefficients
             auto const& evaps1_t = evaps1.table();
@@ -597,8 +553,8 @@ Morrison::ComputeRadarReflectivity()
                 amrex::Real qvi = m_ep_2 * eis / (pres - eis);
 
                 // Calculate saturation ratios
-                amrex::Real qvqvs = qv / qvs;
-                amrex::Real qvqvsi = qv / qvi;
+                [[maybe_unused]] amrex::Real qvqvs = qv / qvs;
+                [[maybe_unused]] amrex::Real qvqvsi = qv / qvi;
 
                 // 1. Cloud Ice Sublimation/Deposition
                 if (qi >= m_qsmall) {
@@ -676,3 +632,4 @@ Morrison::ComputeRadarReflectivity()
 
         }
     }
+#endif
