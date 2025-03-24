@@ -386,7 +386,7 @@ Morrison::Precip(const SolverChoice& sc)
                 npra = amrex::min(npra, nc / dt);
             }
 
-#if 0
+#ifdef ERF_USE_MORRCOLD
             //----------------------------------------------------------------------
             // Q Process: PRACI
             // N Process: NPACR
@@ -553,7 +553,7 @@ Morrison::Precip(const SolverChoice& sc)
             }
 #endif
 
-#if 0
+#ifdef ERF_USE_MORRCOLD
             //----------------------------------------------------------------------
             // Q Process: PRCI
             // N Process: NPRCI
@@ -714,7 +714,7 @@ Morrison::Precip(const SolverChoice& sc)
                     niacrs *= ratio;
                 }
             }
-#if 0
+#ifdef ERF_USE_MORRCOLD
             // Cloud ice conservation
             {
                 // Calculate total sink for cloud ice
@@ -902,7 +902,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Rain water
             hydro_qr(i,j,k) += ( pre + prc + pra - pracs - pracg - piacr - piacrs ) * dt;
             hydro_qr(i,j,k) = amrex::max(hydro_qr(i,j,k), 0.0);
-#if 0
+#ifdef ERF_USE_MORRCOLD
             // Cloud ice
             hydro_qi(i,j,k) += ( prds + qmults + qmultg + qmultr + qmultrg -
                                  prci - prai - praci - pracis ) * dt;
@@ -925,7 +925,7 @@ Morrison::Precip(const SolverChoice& sc)
             // Rain number
             hydro_nr(i,j,k) += ( nprc1 - npracs - npracg - niacr - niacrs + nragg ) * dt;
             hydro_nr(i,j,k) = amrex::max(hydro_nr(i,j,k), 0.0);
-#if 0
+#ifdef ERF_USE_MORRCOLD
             // Cloud ice number
             hydro_ni(i,j,k) += ( nmults + nmultg + nmultr + nmultrg -
                                  nprci - nprai - niacr - niacrs ) * dt;
@@ -949,12 +949,12 @@ Morrison::Precip(const SolverChoice& sc)
                 hydro_qc(i,j,k) = 0.0;
                 hydro_nc(i,j,k) = 0.0;
             }
-
+#ifdef ERF_USE_MORRCOLD
             if (hydro_qi(i,j,k) < m_qsmall) {
                 hydro_qi(i,j,k) = 0.0;
                 hydro_ni(i,j,k) = 0.0;
             }
-
+#endif
             if (hydro_qr(i,j,k) < m_qsmall) {
                 hydro_qr(i,j,k) = 0.0;
                 hydro_nr(i,j,k) = 0.0;
@@ -964,11 +964,12 @@ Morrison::Precip(const SolverChoice& sc)
                 hydro_qs(i,j,k) = 0.0;
                 hydro_ns(i,j,k) = 0.0;
             }
-
+#ifdef ERF_USE_MORRCOLD
             if (hydro_qg(i,j,k) < m_qsmall) {
                 hydro_qg(i,j,k) = 0.0;
                 hydro_ng(i,j,k) = 0.0;
             }
+#endif
             /* // No chem quantities needed no idea
             // Update WRF-Chem quantities if needed
             // Record cloud-to-precipitation conversion for chemistry

@@ -13,8 +13,6 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
 {
     BL_PROFILE("Morrison::Cloud()");
 
-    constexpr Real tbgmin = 253.15;
-    constexpr Real tbgmax = 273.15;
     constexpr Real an = 1.0/(tbgmax - tbgmin);
     constexpr Real bn = tbgmin*an;
 
@@ -31,6 +29,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
         auto  qi_array = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
         auto  qg_array = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
         auto  qr_array = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
+        auto  qs_array = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
         auto  rho_array = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto  tabs_array = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
         auto theta_array = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
@@ -40,8 +39,9 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
         auto  ni_array   = mic_fab_vars[MicVar_Morr::ni]->array(mfi);
         auto  ns_array   = mic_fab_vars[MicVar_Morr::ns]->array(mfi);
         auto  ng_array   = mic_fab_vars[MicVar_Morr::ng]->array(mfi);
+#if 0
         auto  w_array    = mic_fab_vars[MicVar_Morr::omega]->array(mfi);
-
+#endif
         const auto& box3d = mfi.tilebox();
 
         ParallelFor(box3d, [=] AMREX_GPU_DEVICE (int i, int j, int k)
@@ -58,11 +58,12 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
             Real nc   = nc_array(i,j,k);
             Real nr   = nr_array(i,j,k);
             Real ni   = ni_array(i,j,k);
+            Real qs   = qs_array(i,j,k);
             Real ns   = ns_array(i,j,k);
             Real ng   = ng_array(i,j,k);
-            Real w_local = w_array(i,j,k);
 
 #if 0
+            Real w_local = w_array(i,j,k);
             // CCN Activation
             if (temp > 273.15 && qc < 0.05e-3) {
                 Real w_eff = w_local;
@@ -96,7 +97,9 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                     }
                 }
             }
+#endif
 
+#ifdef ERF_USE_MORRCOLD
             // Homogeneous Freezing
             if (temp <= 233.15 && qc >= m_qsmall) {
                 qi += qc;
@@ -117,7 +120,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 Real xlf = xxls - xxlv;
                 Real cpm = m_cp * (1.0 + 0.887 * qv);
                 tabs_array(i,j,k) += qr * xlf / cpm;
-                ng_array(i,j,k) += nr_array(i,j,k);
+                ng_array(i,j,k) += nr;
                 qr = 0.0;
                 nr_array(i,j,k) = 0.0;
             }
@@ -178,7 +181,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 }
             }
 
-#if 0
+#ifdef ERF_USE_MORRCOLD
             // Heterogeneous Freezing
             if (temp < 269.15 && temp > 233.15 && qc >= m_qsmall) {
                 Real n_contact = std::exp(-2.80 + 0.262 * (273.15 - temp)) * 1000.0;
@@ -235,8 +238,8 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 Real qvqvs = qv / qvs;
                 Real qvqvsi = qv / qvi;
 
-                if (m_inuc_type == 0 && qvqvsi >= 1.0 && temp <= 265.15) {
-                    Real kc2 = 0.005 * std::exp(0.304 * (t_freeze - temp)) * 1000.0;
+                if (m_inuc_type == 0 && (qvqvsi >= 1.08 || (temp <= 265.15 && qvqvs >= 0.999))) {
+                    Real kc2 = 0.005 * std::exp(0.304 * (ThermoProp::t_freeze - temp)) * 1000.0;
                     kc2 = std::min(kc2, 500.0e3);
                     kc2 /= rho;
 
@@ -262,7 +265,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
             }
 
             // Ice-Snow Categorization
-            if (temp < t_freeze && qi >= m_qsmall) {
+            if (temp < ThermoProp::t_freeze && qi >= m_qsmall) {
                 Real lami = std::pow(m_cons12 * ni / qi, 1.0/m_di);
                 if (lami >= 1.0e-10 && 1.0/lami >= 2.0*m_dcs) {
                     qs += qi;

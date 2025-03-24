@@ -244,7 +244,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     fr(i,j,k) = umr;
                     fnr(i,j,k) = unr;
                 }
-                
+#ifdef ERF_USE_MORRCOLD                
                 // Snow fall speed - using standard air density correction with exponent 0.54
                 // This follows Heymsfield and Bansemer (2006)
                 if (qps(i,j,k) >= m_qsmall && lams > 0.0) {
@@ -274,7 +274,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     fg(i,j,k) = umg;
                     fng(i,j,k) = ung;
                 }
-                
+#endif                
                 // Fix velocities below precipitation regions by propagating values down
                 // If a velocity is zero at level k but nonzero at k+1, use the k+1 value
                 // This matches WRF V3.3+ to prevent spurious accumulation of precipitation
@@ -283,6 +283,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         fr(i,j,k) = fr(i,j,k+1);
                         fnr(i,j,k) = fnr(i,j,k+1);
                     }
+#ifdef ERF_USE_MORRCOLD
                     if (fs(i,j,k) < 1.0e-10 && k+1 <= khi) {
                         fs(i,j,k) = fs(i,j,k+1);
                         fns(i,j,k) = fns(i,j,k+1);
@@ -295,6 +296,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                         fi(i,j,k) = fi(i,j,k+1);
                         fni(i,j,k) = fni(i,j,k+1);
                     }
+#endif
                     if (fc(i,j,k) < 1.0e-10 && k+1 <= khi) {
                         fc(i,j,k) = fc(i,j,k+1);
                         fnc(i,j,k) = fnc(i,j,k+1);
@@ -365,7 +367,7 @@ for (int k = klo; k < khi; ++k) {
                 flux_qr(i,j,k) = fr(i,j,k) * qpr(i,j,k) * rho(i,j,k);
                 flux_nr(i,j,k) = fnr(i,j,k) * nr(i,j,k) * rho(i,j,k);
             }
-
+#ifdef ERF_USE_MORRCOLD
             //--------------------------------------------------------------
             // Snow fallout
             //--------------------------------------------------------------
@@ -392,7 +394,7 @@ for (int k = klo; k < khi; ++k) {
                 flux_qi(i,j,k) = fi(i,j,k) * qci(i,j,k) * rho(i,j,k);
                 flux_ni(i,j,k) = fni(i,j,k) * ni(i,j,k) * rho(i,j,k);
             }
-
+#endif
             //--------------------------------------------------------------
             // Cloud water fallout
             //--------------------------------------------------------------
@@ -440,7 +442,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             nc(i,j,k) = 0.0;
         }
     }
-    
+#ifdef ERF_USE_MORRCOLD
     if (qvqvsi < 0.9) {
         // For ice species
         if (qci(i,j,k) < 1.E-8) {
@@ -462,6 +464,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             ng(i,j,k) = 0.0;
         }
     }
+#endif
 });
             //------------------------------------------------------------------
             // Apply sedimentation tendencies to state variables (lines ~3902-4000)
@@ -476,44 +479,56 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 // Flux divergence for interior cells
                 if (k < khi) {
                     tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#ifdef ERF_USE_MORRCOLD
                     tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#endif
                     tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
 
                     tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#ifdef ERF_USE_MORRCOLD
                     tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#endif
                     tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                 }
 
     if (k > klo && k < khi) {  // Add flux from below only if not top layer
                     tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#ifdef ERF_USE_MORRCOLD
                     tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#endif
                     tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
 
                     tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#ifdef ERF_USE_MORRCOLD
                     tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                     tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+#endif
                     tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
                 }
 
                 // Apply tendencies
                 qpr(i,j,k) += tend_qr * dt_sub;
+#ifdef ERF_USE_MORRCOLD
                 qps(i,j,k) += tend_qs * dt_sub;
                 qpg(i,j,k) += tend_qg * dt_sub;
                 qci(i,j,k) += tend_qi * dt_sub;
+#endif
                 qcl(i,j,k) += tend_qc * dt_sub;
 
                 // Update number concentrations
                 nr(i,j,k) += tend_nr * dt_sub;
+#ifdef ERF_USE_MORRCOLD
                 ns(i,j,k) += tend_ns * dt_sub;
                 ng(i,j,k) += tend_ng * dt_sub;
                 ni(i,j,k) += tend_ni * dt_sub;
+#endif
                 nc(i,j,k) += tend_nc * dt_sub;
 #if 0
                 // Floor values to prevent negative concentrations
@@ -558,6 +573,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             if (klo == 0) {  // Only if domain includes the surface
                 for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
                     for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
+#ifdef ERF_USE_MORRCOLD
                         // Accumulate precipitation at the surface (bottom of domain)
                         rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
                         snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
@@ -571,6 +587,16 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                         rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
                         snow_accum += (flux_qs(i,j,klo) + flux_qi(i,j,klo)) * dt_sub;
                         graup_accum += flux_qg(i,j,klo) * dt_sub;
+#else
+                        // Accumulate precipitation at the surface (bottom of domain)
+                        rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
+
+                        // Also accumulate cloud water
+                        rain_arr(i,j,klo) += flux_qc(i,j,klo) * dt_sub;
+
+                        // Accumulate totals for output (includes all precipitation)
+                        rain_accum += (flux_qr(i,j,klo) + flux_qc(i,j,klo)) * dt_sub;
+#endif
                     }
                 }
             }
@@ -578,11 +604,17 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
         //----------------------------------------------------------------------
         // Update total precipitation and snow fields (for diagnostic output)
         //----------------------------------------------------------------------
-
+#ifdef ERF_USE_MORRCOLD
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Update total precipitation mixing ratio (include all hydrometeors)
             qp(i,j,k) = qpr(i,j,k) + qps(i,j,k) + qpg(i,j,k) + qcl(i,j,k) + qci(i,j,k);
         });
+#else
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            // Update total precipitation mixing ratio (include all hydrometeors)
+            qp(i,j,k) = qpr(i,j,k) + qcl(i,j,k);
+        });
+#endif
     }
 
     // Reduce accumulated precipitation across processes if using MPI

@@ -372,7 +372,7 @@ Morrison::initialize_constants ()
  * @param[in] geom Geometry associated with these MultiFabs and grids
  */
 void
-Morrison::allocate_arrays(const BoxArray& grids, const Geometry& geom)
+Morrison::allocate_arrays(const BoxArray& grids, const Geometry& /*geom*/)
 {
     // Get number of ghost cells for different variables
     const int n_ghost_micro = 1; // Number of ghost cells for microphysics variables
@@ -452,7 +452,7 @@ Morrison::copy_input_data (const MultiFab& cons_in)
 }
 
 void
-Morrison::initialize_thermodynamics (const Geometry& geom)
+Morrison::initialize_thermodynamics (const Geometry& /*geom*/)
 {
     // Initialize thermodynamic variables
     // This is now handled by the Copy_State_to_Micro method
@@ -761,13 +761,13 @@ void
 Morrison::initialize_vertical_grid (std::unique_ptr<MultiFab>& z_phys_nd,
                                     std::unique_ptr<MultiFab>& detJ_cc)
 {
-  // Store pointers to vertical grid information
+       // Store pointers to vertical grid information
        m_z_phys_nd = z_phys_nd.get();
        m_detJ_cc = detJ_cc.get();
 
        // Set maximum allowed Courant number for sedimentation
        m_max_sediment_courant = 0.9;
-
+#if 0
        // Initialize vertical grid for each cell
        for (MFIter mfi(*m_z_phys_nd); mfi.isValid(); ++mfi) {
            const Box& box = mfi.validbox();
@@ -779,6 +779,7 @@ Morrison::initialize_vertical_grid (std::unique_ptr<MultiFab>& z_phys_nd,
                // Additional initialization if needed
            });
        }
+#endif
 }
 
 /**
