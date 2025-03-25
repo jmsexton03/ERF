@@ -122,7 +122,7 @@ public:
         this->Copy_Micro_to_State(cons_in);
     }
 
-  
+
     // wrapper to do all the updating
     void
     Advance (const amrex::Real& dt_advance,
@@ -138,7 +138,7 @@ public:
 
     }
     */
-    
+
     amrex::MultiFab*
     Qmoist_Ptr (const int& varIdx) override
     {
@@ -297,11 +297,11 @@ public:
      * @param[in] sc SolverChoice containing solver configuration
      */
     void ActivateCloudDroplets (const SolverChoice& sc);
-    
+
     /**
      * Performs water conservation checks for microphysical processes
      * Ensures that process rates don't deplete more water than is available
-     * 
+     *
      * @param[in,out] process_rates Array of process rates to be adjusted
      * @param[in] available_water Available water for depletion (kg/kg)
      * @param[in] dt_in Timestep (s)
@@ -310,10 +310,10 @@ public:
     amrex::Real EnforceWaterConservation (amrex::Vector<amrex::Real>& process_rates,
                                           const amrex::Real available_water,
                                           const amrex::Real dt_in);
-    
+
     /**
      * Computes radar reflectivity from hydrometeor properties.
-     * 
+     *
      */
     void ComputeRadarReflectivity ();
 
@@ -326,22 +326,22 @@ public:
      * @param[in] qv Water vapor mixing ratio (kg/kg)
      * @return Supersaturation ratio (0-1)
      */
-    amrex::Real calculateSupersaturation (const amrex::Real w, 
-                                          const amrex::Real T, 
-                                          const amrex::Real P, 
+    amrex::Real calculateSupersaturation (const amrex::Real w,
+                                          const amrex::Real T,
+                                          const amrex::Real P,
                                           const amrex::Real qv) const;
-    
+
     /**
      * Calculates the error function for CCN activation
-     * 
+     *
      * @param[in] x Input value for error function
      * @return Error function value
      */
     amrex::Real ErrorFunction (const amrex::Real x) const;
-    
+
     /**
      * Calculates the complementary error function (1-erf)
-     * 
+     *
      * @param[in] x Input value
      * @return Complementary error function value
      */
@@ -417,14 +417,14 @@ private:
     // Microphysics options/switches
     int m_iact = 2;    // CCN activation option (1: power-law, 2: lognormal aerosol)
     int m_inum = 1;    // Droplet number option (0: predict, 1: constant)
-    int m_iliq = 0;    // Liquid-only option (0: include ice, 1: liquid only) 
+    int m_iliq = 0;    // Liquid-only option (0: include ice, 1: liquid only)
     int m_inuc = 0;    // Ice nucleation option (0: mid-latitude, 1: arctic)
     int m_ibase = 2;   // Cloud base activation option
     int m_isub = 0;    // Sub-grid vertical velocity option
     int m_igraup = 0;  // Graupel option (0: include graupel, 1: no graupel)
     int m_ihail = 0;   // Graupel/hail option (0: graupel, 1: hail)
     bool m_do_radar_ref = false;  // Radar reflectivity calculation flag
-    
+
     // Physical constants
     amrex::Real m_pi;          // Pi constant
     amrex::Real m_R;           // Gas constant for dry air (J/kg/K)
@@ -432,21 +432,21 @@ private:
     amrex::Real m_cp;          // Specific heat at constant pressure (J/kg/K)
     amrex::Real m_g;           // Gravitational acceleration (m/s^2)
     amrex::Real m_ep_2;        // Molecular weight ratio (Rd/Rv)
-    
+
     // Reference density and species densities
     amrex::Real m_rhosu;       // Standard air density at 850 mb (kg/m^3)
     amrex::Real m_rhow;        // Density of liquid water (kg/m^3)
     amrex::Real m_rhoi;        // Bulk density of cloud ice (kg/m^3)
     amrex::Real m_rhosn;       // Bulk density of snow (kg/m^3)
     amrex::Real m_rhog;        // Bulk density of graupel/hail (kg/m^3)
-    
+
     // Fall speed parameters (V=AD^B)
     amrex::Real m_ai, m_bi;    // Cloud ice fall speed parameters
     amrex::Real m_ac, m_bc;    // Cloud droplet fall speed parameters
     amrex::Real m_as, m_bs;    // Snow fall speed parameters
     amrex::Real m_ar, m_br;    // Rain fall speed parameters
     amrex::Real m_ag, m_bg;    // Graupel/hail fall speed parameters
-    
+
     // Microphysical parameters
     amrex::Real m_aimm;        // Parameter in Bigg immersion freezing
     amrex::Real m_bimm;        // Parameter in Bigg immersion freezing
@@ -464,25 +464,25 @@ private:
     amrex::Real m_cpw;         // Specific heat of liquid water (J/kg/K)
     amrex::Real m_rin;         // Radius of contact nuclei (m)
     amrex::Real m_mmult;       // Mass of splintered ice particle (kg)
-    
+
     // Size distribution parameters
     amrex::Real m_ci, m_di;    // Cloud ice size distribution parameters
     amrex::Real m_cs, m_ds;    // Snow size distribution parameters
     amrex::Real m_cg, m_dg;    // Graupel size distribution parameters
-    
+
     // Lambda limits for size distributions
     amrex::Real m_lammaxi, m_lammini;    // Cloud ice lambda limits
     amrex::Real m_lammaxr, m_lamminr;    // Rain lambda limits
     amrex::Real m_lammaxs, m_lammins;    // Snow lambda limits
     amrex::Real m_lammaxg, m_lamming;    // Graupel lambda limits
-    
+
     // Constant droplet concentration (if INUM = 1)
     amrex::Real m_ndcnst = 250.0;  // Droplet number concentration (cm^-3)
-    
+
     // CCN spectra parameters (for IACT = 1)
     amrex::Real m_k1;          // Exponent in CCN activation formula
     amrex::Real m_c1;          // Coefficient in CCN activation formula (cm^-3)
-    
+
     // Aerosol activation parameters (for IACT = 2)
     amrex::Real m_mw;          // Molecular weight water (kg/mol)
     amrex::Real m_osm;         // Osmotic coefficient
@@ -503,7 +503,7 @@ private:
     amrex::Real m_f12;         // Correction factor for activation, mode 1
     amrex::Real m_f21;         // Correction factor for activation, mode 2
     amrex::Real m_f22;         // Correction factor for activation, mode 2
-    
+
     // Precomputed constants for efficiency
     amrex::Real m_cons1, m_cons2, m_cons3, m_cons4, m_cons5;
     amrex::Real m_cons6, m_cons7, m_cons8, m_cons9, m_cons10;
@@ -514,7 +514,7 @@ private:
     amrex::Real m_cons31, m_cons32, m_cons33, m_cons34, m_cons35;
     amrex::Real m_cons36, m_cons37, m_cons38, m_cons39, m_cons40;
     amrex::Real m_cons41;
-    
+
     // Radar reflectivity parameters
     amrex::Real m_xam_r, m_xbm_r, m_xmu_r;  // Rain reflectivity parameters
     amrex::Real m_xam_s, m_xbm_s, m_xmu_s;  // Snow reflectivity parameters
@@ -523,12 +523,12 @@ private:
     amrex::Real m_k_w;           // K_w parameter for liquid water
     amrex::Real m_lamda4;        // Lambda^4 for radar calculation
     amrex::Real m_pi5;           // Pi^5 for radar calculation
-    
+
     // Radar arrays for Simpson integration
     amrex::Vector<amrex::Real> m_xxds, m_xxdg;     // Diameter values
     amrex::Vector<amrex::Real> m_xdts, m_xdtg;     // Diameter increments
     amrex::Vector<amrex::Real> m_simpson;          // Simpson's rule weights
-    
+
     // Parameters for radar melting calculations
     bool m_melt_outside_s;     // Liquid coating of melting snow
     bool m_melt_outside_g;     // Liquid coating of melting graupel
@@ -546,46 +546,46 @@ private:
     std::string m_hoststring_g;
     std::string m_hostmatrixstring_g;
     std::string m_hostinclusionstring_g;
-    
+
     // Storage for internal state
     std::unique_ptr<amrex::MultiFab> m_cons;    // Conserved variables
     std::unique_ptr<amrex::MultiFab> m_thermo;  // Thermodynamic variables
     std::unique_ptr<amrex::MultiFab> m_hydro;   // Hydrometeor variables
     std::unique_ptr<amrex::MultiFab> m_tend;    // Tendency variables
     std::unique_ptr<amrex::MultiFab> m_radar;   // Radar reflectivity
-    
+
     // Sedimentation parameters
     amrex::Real m_max_sediment_courant;  // Maximum allowed Courant for sedimentation
-    
+
     // Utility methods
-    
+
     /**
      * Initializes physical constants and parameters for the Morrison microphysics scheme.
      */
     void initialize_constants();
-    
+
     /**
      * Allocates internal MultiFabs for microphysics variables.
-     * 
+     *
      * @param[in] grids The boxes on which we will evolve the solution
      * @param[in] geom Geometry associated with these MultiFabs and grids
      */
     void allocate_arrays(const amrex::BoxArray& grids, const amrex::Geometry& geom);
-    
+
     /**
      * Copies input data to internal storage and performs initial calculations.
-     * 
+     *
      * @param[in] cons_in Conserved variables input
      */
     void copy_input_data(const amrex::MultiFab& cons_in);
-    
+
     /**
      * Initializes thermodynamic variables needed for microphysics.
-     * 
+     *
      * @param[in] geom Geometry associated with these MultiFabs and grids
      */
     void initialize_thermodynamics(const amrex::Geometry& geom);
-    
+
     /**
      * Initializes hydrometeor size distributions based on mixing ratios and number concentrations.
      */
@@ -636,7 +636,7 @@ private:
                                    // Output lambda parameters
                                    amrex::Real &lambda_c, amrex::Real &lambda_r, amrex::Real &lambda_i, amrex::Real &lambda_s, amrex::Real &lambda_g,
                                    // Output pgam parameter
-				   amrex::Real& pgam,
+                                   amrex::Real& pgam,
                                    // Output intercept parameters
                                    amrex::Real &n0_c, amrex::Real &n0_r, amrex::Real &n0_i, amrex::Real &n0_s, amrex::Real &n0_g,
                                    // Flag for simple lambda calculation method
@@ -919,26 +919,26 @@ private:
 
    /**
      * Initializes vertical grid information needed for sedimentation calculations.
-     * 
+     *
      * @param[in,out] z_phys_nd Physical heights at cell centers
      * @param[in] detJ_cc Jacobian determinant at cell centers
      */
     void initialize_vertical_grid(std::unique_ptr<amrex::MultiFab>& z_phys_nd,
                                   std::unique_ptr<amrex::MultiFab>& detJ_cc);
-    
+
     /**
      * Initializes parameters needed for radar reflectivity calculations.
      */
     void initialize_radar_parameters();
-    
+
     /**
      * Initializes the radar reflectivity calculation module.
      */
     void initialize_radar_reflectivity();
-    
+
     /**
      * Helper function to calculate the gamma function.
-     * 
+     *
      * @param[in] x Input value
      * @return The gamma function evaluated at x
      */
@@ -982,7 +982,7 @@ private:
   /**
    * Helper function to calculate saturation vapor pressure for water or ice.
    * This corresponds to the POLYSVP function in the Fortran code (line ~5580).
-   * 
+   *
    * @param[in] T Temperature in Kelvin
    * @param[in] type 0 for liquid water, 1 for ice
    * @return Saturation vapor pressure in Pascals
@@ -1005,14 +1005,14 @@ private:
             const amrex::Real a6i = 0.385852041e-9;
             const amrex::Real a7i = 0.146898966e-11;
             const amrex::Real a8i = 0.252751365e-14;
-            
+
             polysvp = a0i + del_T*(a1i + del_T*(a2i + del_T*(a3i + del_T*(a4i + del_T*(a5i + del_T*(a6i + del_T*(a7i + a8i*del_T)))))));
             polysvp *= 100.0;  // Convert from hPa to Pa
         } else {
             // Goff-Gratch formula for ice at cold temperatures
-            polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) + 
+            polysvp = std::pow(10.0, (-9.09718*(273.16/T-1.0) - 3.56654*std::log10(273.16/T) +
                                       0.876793*(1.0-T/273.16) + std::log10(6.1071))) * 100.0;
-            polysvp = 0.0; 
+            polysvp = 0.0;
         } // T
     } else {  // Water (lines ~5648-5665)
       if (T >= 202.0) {
@@ -1026,7 +1026,7 @@ private:
         const amrex::Real a6 = 0.640689451e-10;
         const amrex::Real a7 = -0.952447341e-13;
         const amrex::Real a8 = -0.976195544e-15;
-           
+
         polysvp = a0 + del_T*(a1 + del_T*(a2 + del_T*(a3 + del_T*(a4 + del_T*(a5 + del_T*(a6 + del_T*(a7 + a8*del_T)))))));
         polysvp *= 100.0;  // Convert from hPa to Pa
       } else {
@@ -1040,7 +1040,7 @@ private:
 
     return polysvp;
   }
-  
+
 // Add to Morrison class private section:
 private:
     // Activation and nucleation parameters
@@ -1061,13 +1061,13 @@ namespace PhysProp {
     // Gas constants
     constexpr amrex::Real R_d = 287.15;       // Gas constant for dry air (J/kg/K)
     constexpr amrex::Real R_v = 461.5;        // Gas constant for water vapor (J/kg/K)
-    
+
     // Specific heats
     constexpr amrex::Real c_p = 1005.0;       // Specific heat at constant pressure for dry air (J/kg/K)
-    
+
     // Molecular weight ratios
     constexpr amrex::Real ep_2 = R_d / R_v;   // Molecular weight ratio (Rd/Rv)
-    
+
     // Gravitational acceleration
     constexpr amrex::Real g = 9.806;          // Gravitational acceleration (m/s^2)
 }
@@ -1079,14 +1079,14 @@ namespace PhysProp {
 namespace ThermoProp {
     // Freezing point of water
     constexpr amrex::Real t_freeze = 273.15;  // Freezing point of water (K)
-    
+
     // Mixed-phase bounds
     constexpr amrex::Real tbgmin = 253.15;    // Minimum temperature for mixed-phase (K)
     constexpr amrex::Real tbgmax = 273.15;    // Maximum temperature for mixed-phase (K)
-    
+
     // Homogeneous freezing threshold
     constexpr amrex::Real t_homog_freeze = 233.15;  // Homogeneous freezing threshold (K)
-    
+
     // Latent heats
     constexpr amrex::Real lcond = 2.5e6;      // Latent heat of condensation (J/kg)
     constexpr amrex::Real lfus = 3.336e5;     // Latent heat of fusion (J/kg)

@@ -108,7 +108,7 @@ Morrison::Precip(const SolverChoice& /* sc */)
     // Temperature thresholds for HM-process (K)
     [[maybe_unused]] constexpr amrex::Real t_hm_max = 270.16;
     [[maybe_unused]] constexpr amrex::Real t_hm_min = 265.16;
-    
+
     // Mass of individual splinters (kg)
     [[maybe_unused]] const amrex::Real mmult = 4.0/3.0 * M_PI * m_rhoi * std::pow(5.0e-6, 3);
     amrex::Real rdOcp    = m_rdOcp;
@@ -116,7 +116,7 @@ Morrison::Precip(const SolverChoice& /* sc */)
     // Loop through grids
     for (amrex::MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
         const amrex::Box& box = mfi.validbox();
-        
+
         // Get array data
         auto const& thermo_tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
         auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
@@ -137,7 +137,7 @@ Morrison::Precip(const SolverChoice& /* sc */)
         auto const& qp_array = mic_fab_vars[MicVar_Morr::qp]->array(mfi);
         auto const& theta_array = mic_fab_vars[MicVar_Morr::theta]->array(mfi);
 
-         
+
         // Parallel execution over the box
         amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Variables for storing process rates
@@ -211,10 +211,10 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                                       lamc, lamr, lami, lams, lamg, pgam,
                                       n0c, n0r, n0i, n0s, n0g);
 // unclear where ccn should live
-#if 0            
+#if 0
             //----------------------------------------------------------------------
             // Q Process: PCCN
-            // N Process: 
+            // N Process:
             // Process: CCN Activation
             // Description: New process added for cloud droplet activation
             // Fraction: Cloud
@@ -288,8 +288,8 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             }
 #endif
             //----------------------------------------------------------------------
-            // Q Process: 
-            // N Process: 
+            // Q Process:
+            // N Process:
             // Process: Self-collection/breakup of rain
             // Description: Self-collection/breakup of rain
             // Fraction: Cloud
@@ -341,22 +341,22 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                 }
 
                 // CAM version with different exponent (-1.1) and additional coefficients
-                prc = prc_coef * 0.01 * 1350.0 * std::pow(qc, 2.47) * 
+                prc = prc_coef * 0.01 * 1350.0 * std::pow(qc, 2.47) *
                       std::pow(nc * 1.0e-6 * rho, -1.1);
-              
+
                 // Calculate number conversion rates using CAM approach
                 nprc = prc * (1.0/droplet_mass_25um);
                 nprc1 = prc * nc / qc;
 #else
                 // Original implementation
-                prc = 1350.0 * std::pow(qc, 2.47) * 
+                prc = 1350.0 * std::pow(qc, 2.47) *
                       std::pow(nc * rho / 1.0e6, -1.79);
-              
+
                 // Calculate number conversion rates
                 nprc1 = prc / m_cons29;
                 nprc = prc / (qc / nc);
 #endif
-                
+
                 // Limit by available cloud water
                 nprc = amrex::min(nprc, nc / dt);
                 nprc1 = amrex::min(nprc1, nprc);
@@ -393,23 +393,23 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             if (temp <= 273.15 && qr >= 1.0e-8 && qi >= 1.0e-8) {
                 // Determine if rain is heavy enough to convert to graupel
                 const bool convert_to_graupel = (qr >= 0.1e-3);
-                
+
                 // Collision rates for number concentrations
-                niacr = m_cons24 * ni * n0r * m_ar * 
+                niacr = m_cons24 * ni * n0r * m_ar *
                        std::pow(lamr, -(m_br + 3.0)) * rho;
-                
+
                 // Collision rates for mass - ice collecting rain
-                piacr = m_cons25 * ni * n0r * m_ar * 
+                piacr = m_cons25 * ni * n0r * m_ar *
                        std::pow(lamr, -(m_br + 3.0)) / std::pow(lamr, 3.0) * rho;
-                
+
                 // Collision rates for mass - rain collecting ice
-                praci = m_cons24 * qi * n0r * m_ar * 
+                praci = m_cons24 * qi * n0r * m_ar *
                        std::pow(lamr, -(m_br + 3.0)) * rho;
-                
+
                 // Limit by available particles
                 const amrex::Real niacr_limited = amrex::min(niacr, nr / dt);
                 niacr = amrex::min(niacr_limited, ni / dt);
-                
+
                 if (convert_to_graupel) {
                     // Rain-ice collisions go to graupel
                     // Process rates stored above will be applied in tendency update
@@ -418,14 +418,14 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                     piacrs = piacr;
                     niacrs = niacr;
                     pracis = praci;
-                    
+
                     // Zero out graupel production
                     piacr = 0.0;
                     niacr = 0.0;
                     praci = 0.0;
                 }
             }
-            
+
             //----------------------------------------------------------------------
             // Q Process: PSACWS
             // N Process: NSACWS
@@ -437,7 +437,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             if (temp < t_hm_max && temp > t_hm_min) {
                 // Calculate temperature-dependent multiplication factor
                 amrex::Real fmult = 0.0;
-                
+
                 if (temp > t_hm_max) {
                     fmult = 0.0;
                 } else if (temp <= t_hm_max && temp > 268.16) {
@@ -447,7 +447,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                 } else if (temp < t_hm_min) {
                     fmult = 0.0;
                 }
-                
+
                 //----------------------------------------------------------------------
                 // 4a. Splintering from snow riming
                 //----------------------------------------------------------------------
@@ -455,18 +455,18 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                     // Threshold for liquid water content needed for HM-process
                     const bool cloud_threshold = (qc >= 0.5e-3);  // 0.5 g/kg
                     const bool rain_threshold = (qr >= 0.1e-3);   // 0.1 g/kg
-                    
+
                     //F2446
                     if (cloud_threshold || rain_threshold) {
                         // Accretion of cloud water by snow
                         if (cloud_threshold && qc > 0.0) {
                             psacws = m_cons13 * m_as * qc * rho * n0s / std::pow(lams, m_bs + 3.0);
                             npsacws = m_cons13 * m_as * nc * rho * n0s / std::pow(lams, m_bs + 3.0);
-                            //F2620                            
+                            //F2620
                             // Calculate splinters from cloud water riming
                             nmults = 35.0e4 * psacws * fmult * 1000.0;
                             qmults = nmults * mmult;
-                            
+
                             // Constrain to available rimed mass
                             qmults = amrex::min(qmults, psacws);
                             psacws -= qmults;
@@ -479,39 +479,39 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                             amrex::Real umr = m_ar * m_cons4 / std::pow(lamr, m_br);
                             amrex::Real uns = m_as * m_cons5 / std::pow(lams, m_bs);
                             amrex::Real unr = m_ar * m_cons6 / std::pow(lamr, m_br);
-                            
+
                             // Density correction
                             const amrex::Real dum_density0 = std::pow(m_rhosu / rho, 0.54);
                             ums = amrex::min(ums, 1.2 * dum_density0);
                             uns = amrex::min(uns, 1.2 * dum_density0);
                             umr = amrex::min(umr, 9.1 * dum_density0);
                             unr = amrex::min(unr, 9.1 * dum_density0);
-                            
+
                             // Calculate collection rates
-                            pracs = m_cons41 * (std::sqrt(std::pow(1.2*umr-0.95*ums, 2) + 
+                            pracs = m_cons41 * (std::sqrt(std::pow(1.2*umr-0.95*ums, 2) +
                                    0.08*ums*umr) * rho * n0r * n0s / std::pow(lamr, 3.0) *
                                    (5.0 / (std::pow(lamr, 3.0) * lams) +
                                     2.0 / (std::pow(lamr, 2.0) * std::pow(lams, 2.0)) +
                                     0.5 / (lamr * std::pow(lams, 3.0))));
-                            
+
                             // Calculate number collection
                             npracs = m_cons32 * rho * std::sqrt(1.7 * std::pow(unr - uns, 2) +
                                     0.3 * unr * uns) * n0r * n0s *
                                     (1.0 / (std::pow(lamr, 3.0) * lams) +
                                      1.0 / (std::pow(lamr, 2.0) * std::pow(lams, 2.0)) +
                                      1.0 / (lamr * std::pow(lams, 3.0)));
-                            
+
                             // Calculate splinters from rain riming
                             nmultr = 35.0e4 * pracs * fmult * 1000.0;
                             qmultr = nmultr * mmult;
-                            
+
                             // Constrain to available rimed mass
                             qmultr = amrex::min(qmultr, pracs);
                             pracs -= qmultr;
                         }
                     }
                 }
-                //F2654                
+                //F2654
                 //----------------------------------------------------------------------
                 // 4b. Splintering from graupel riming
                 //----------------------------------------------------------------------
@@ -559,9 +559,9 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             //F2352
             // Starting temperature
             amrex::Real T = thermo_tabs(i,j,k);
-            
+
             // Calculate the saturation values at current temperature
-            amrex::Real evs = std::min(0.99*thermo_pres(i,j,k), 
+            amrex::Real evs = std::min(0.99*thermo_pres(i,j,k),
                                      calc_saturation_vapor_pressure(T, 0)); // Water saturation
             amrex::Real eis = std::min(0.99*thermo_pres(i,j,k), calc_saturation_vapor_pressure(temp, 1));
             if (eis > evs) eis = evs;
@@ -653,22 +653,22 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             }
 #endif
             //----------------------------------------------------------------------
-            // Q Process: 
-            // N Process: 
+            // Q Process:
+            // N Process:
             // Process: Water conservation
             // Description: Apply all tendency terms to the hydrometeor fields
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            //F1938 
+            //F1938
             // Cloud water conservation
             {
                 // Calculate total sink for cloud water
                 const amrex::Real sink_qc = (prc + pra + psacws + psacwg + qmults + qmultg) * dt;
-                
+
                 // Apply conservation if sink exceeds available
                 if (sink_qc > qc && qc >= m_qsmall) {
                     const amrex::Real ratio = qc / sink_qc;
-                    
+
                     // Rescale process rates
                     prc *= ratio;
                     pra *= ratio;
@@ -676,7 +676,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                     psacwg *= ratio;
                     qmults *= ratio;
                     qmultg *= ratio;
-                    
+
                     // Rescale number conversion rates
                     nprc *= ratio;
                     nprc1 *= ratio;
@@ -857,22 +857,22 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                     // Apply latent cooling
                     thermo_tabs(i,j,k) -= pgmlt_accel * xlf / cpm;
                 }
-            }           
+            }
 #endif
             //----------------------------------------------------------------------
-            // Q Process: 
-            // N Process: 
+            // Q Process:
+            // N Process:
             // Process: Water conservation
             // Description: Apply all tendency terms to the hydrometeor fields
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            //F1296 
+            //F1296
             // Calculate latent heat terms
             const amrex::Real xxlv = 3.1484e6 - 2370.0 * temp;  // Latent heat of vaporization
             const amrex::Real xxls = 3.15e6 - 2370.0 * temp + 0.3337e6;  // Latent heat of sublimation
             const amrex::Real xlf = xxls - xxlv;  // Latent heat of fusion
             [[maybe_unused]] const amrex::Real cpm = m_cp * (1.0 + 0.887 * qv);  // Heat capacity
-            
+
             // Update state variables with computed tendencies
             // Water vapor
             hydro_qv(i,j,k) += ( -pre - evpms - evpmg ) * dt;

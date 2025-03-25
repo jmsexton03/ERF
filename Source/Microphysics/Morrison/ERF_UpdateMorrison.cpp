@@ -63,7 +63,7 @@ Morrison::Advance (const amrex::Real& dt_advance,
                    const SolverChoice& sc)
 {
     BL_PROFILE("Morrison::Advance()");
-    
+
     // Store timestep
     dt = dt_advance;
 
@@ -169,7 +169,7 @@ void Morrison::rayleigh_soak_wetgraupel(const amrex::Real x,
 
 /**
  * Computes radar reflectivity from hydrometeor properties.
- * 
+ *
  */
 void
 Morrison::ComputeRadarReflectivity()
@@ -570,7 +570,7 @@ Morrison::ComputeRadarReflectivity()
                     amrex::Real dum = (1.0 - std::exp(-lami * m_dcs) * (1.0 + lami * m_dcs));
                     prd = 2.0 * M_PI * ni * rho * (qv - qvi) /
                            (rho * ((m_fac_sub / (tabs1d_t(k_1d) * m_Rv) - 1.0) * m_fac_sub /
-			   (1.414E3 * 1.496E-6 * std::pow(tabs1d_t(k_1d),1.5) / (tabs1d_t(k_1d) + 120.0) * tabs1d_t(k_1d)) +
+                           (1.414E3 * 1.496E-6 * std::pow(tabs1d_t(k_1d),1.5) / (tabs1d_t(k_1d) + 120.0) * tabs1d_t(k_1d)) +
                            m_Rv * tabs1d_t(k_1d) / (8.794E-5 * std::pow(tabs1d_t(k_1d),1.81) / pres * eis))) *
                            dum / (1.0 + (3.15e6 - 2370.0 * temp + 0.3337e6) * (3.15e6 - 2370.0 * temp + 0.3337e6) * qvi /
                            (m_Rv * temp * temp) * m_fac_sub / (m_cp * (1.0 + 0.887 * qv)));

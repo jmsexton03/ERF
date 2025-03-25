@@ -44,11 +44,11 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         auto const& rho = mic_fab_vars[MicVar_Morr::rho]->array(mfi);
         auto const& tabs = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
         auto const& pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
-        
+
         // Get cloud hydrometeor arrays
         auto const& qcl = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);  // Cloud water mixing ratio
         auto const& qci = mic_fab_vars[MicVar_Morr::qci]->array(mfi);  // Cloud ice mixing ratio
-        
+
         // Get number concentration arrays
         auto const& nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);  // Cloud droplet number concentration
         auto const& ni = mic_fab_vars[MicVar_Morr::ni]->array(mfi);  // Ice number concentration
@@ -129,28 +129,28 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
     // Arrays to store terminal velocities for mass and number
     amrex::FArrayBox fr_fab(box, 1);  // Mass-weighted fall speed for rain
     amrex::FArrayBox fs_fab(box, 1);  // Mass-weighted fall speed for snow
-    amrex::FArrayBox fg_fab(box, 1);  // Mass-weighted fall speed for graupel 
+    amrex::FArrayBox fg_fab(box, 1);  // Mass-weighted fall speed for graupel
     amrex::FArrayBox fi_fab(box, 1);  // Mass-weighted fall speed for cloud ice
     amrex::FArrayBox fc_fab(box, 1);  // Mass-weighted fall speed for cloud water
-    
+
     amrex::FArrayBox fnr_fab(box, 1); // Number-weighted fall speed for rain
     amrex::FArrayBox fns_fab(box, 1); // Number-weighted fall speed for snow
     amrex::FArrayBox fng_fab(box, 1); // Number-weighted fall speed for graupel
     amrex::FArrayBox fni_fab(box, 1); // Number-weighted fall speed for cloud ice
     amrex::FArrayBox fnc_fab(box, 1); // Number-weighted fall speed for cloud water
-    
+
     auto const& fr = fr_fab.array();
     auto const& fs = fs_fab.array();
     auto const& fg = fg_fab.array();
     auto const& fi = fi_fab.array();
     auto const& fc = fc_fab.array();
-    
+
     auto const& fnr = fnr_fab.array();
     auto const& fns = fns_fab.array();
     auto const& fng = fng_fab.array();
     auto const& fni = fni_fab.array();
     auto const& fnc = fnc_fab.array();
-    
+
     // Initialize fall speeds to zero
     amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
         fr(i,j,k) = 0.0;
@@ -158,26 +158,26 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         fg(i,j,k) = 0.0;
         fi(i,j,k) = 0.0;
         fc(i,j,k) = 0.0;
-        
+
         fnr(i,j,k) = 0.0;
         fns(i,j,k) = 0.0;
         fng(i,j,k) = 0.0;
         fni(i,j,k) = 0.0;
         fnc(i,j,k) = 0.0;
     });
-    
+
     // Initialize thermodynamic arrays for subsaturation checking
     amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
         // Latent heat of vaporization (J/kg)
         xxlv(i,j,k) = 3.1484E6 - 2370.0*tabs(i,j,k);
-        
+
         // Latent heat of sublimation (J/kg)
         xxls(i,j,k) = 3.15E6 - 2370.0*tabs(i,j,k) + 0.3337E6;
-        
+
         // Specific heat of moist air (J/kg/K)
         cpm(i,j,k) = CP*(1.0 + 0.887*qv3d(i,j,k));
     });
-    
+
     // Calculate fall speeds for all hydrometeors at all levels
     for (int k = klo; k <= khi; ++k) {
         for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
@@ -186,7 +186,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                 amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
                 amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
                 amrex::Real pgam = 0.0;
-                
+
                 // Calculate size distribution parameters
                 size_distributions_params(
                     qcl(i,j,k), qci(i,j,k), qpr(i,j,k), qps(i,j,k), qpg(i,j,k),
@@ -194,26 +194,26 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     rho(i,j,k), tabs(i,j,k), pres(i,j,k),
                     lamc, lamr, lami, lams, lamg, pgam,
                     n0c, n0r, n0i, n0s, n0g);
-                
+
                 // Cloud water fall speed - use Stokes law with temperature-dependent viscosity
                 if (qcl(i,j,k) >= m_qsmall && lamc > 0.0) {
                     // Calculate temperature-dependent dynamic viscosity (MU) using the correct formula
                     // MU(K) = 1.496E-6*T3D(K)**1.5/(T3D(K)+120.) in Fortran
                     const amrex::Real mu = 1.496E-6 * std::pow(tabs(i,j,k), 1.5) / (tabs(i,j,k) + 120.0);
-                    
+
                     // Stokes fall velocity for cloud droplets (temperature-dependent)
                     // ACN(K) = G*RHOW/(18.*MU(K)) in Fortran
                     amrex::Real umc = m_g * m_rhow / (18.0 * mu);
                     // Apply gamma function approach for consistency with WRF
                     umc *= std::tgamma(4.0 + m_bc + pgam) / (std::pow(lamc, m_bc) * std::tgamma(pgam + 4.0));
-                    
+
                     amrex::Real unc = m_g * m_rhow / (18.0 * mu);
                     unc *= std::tgamma(1.0 + m_bc + pgam) / (std::pow(lamc, m_bc) * std::tgamma(pgam + 1.0));
-                    
+
                     fc(i,j,k) = umc;
                     fnc(i,j,k) = unc;
                 }
-                
+
                 // Cloud ice fall speed - using Ikawa and Saito (1991) air-density correction with exponent 0.35
                 // Different from the exponent 0.54 used for rain, snow, and graupel
                 if (qci(i,j,k) >= m_qsmall && lami > 0.0) {
@@ -221,60 +221,60 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
                     const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.35);
                     amrex::Real umi = air_density_factor * m_ai * m_cons28 / std::pow(lami, m_bi);
                     amrex::Real uni = air_density_factor * m_ai * m_cons27 / std::pow(lami, m_bi);
-                    
+
                     // Apply fall speed limits
                     umi = std::min(umi, 1.2 * air_density_factor);
                     uni = std::min(uni, 1.2 * air_density_factor);
-                    
+
                     fi(i,j,k) = umi;
                     fni(i,j,k) = uni;
                 }
-                
+
                 // Rain fall speed - using standard air density correction with exponent 0.54
                 // This follows Heymsfield and Bansemer (2006)
                 if (qpr(i,j,k) >= m_qsmall && lamr > 0.0) {
                     const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                     amrex::Real umr = air_density_factor * m_ar * m_cons4 / std::pow(lamr, m_br);
                     amrex::Real unr = air_density_factor * m_ar * m_cons6 / std::pow(lamr, m_br);
-                    
+
                     // Apply fall speed limits
                     umr = std::min(umr, 9.1 * air_density_factor);
                     unr = std::min(unr, 9.1 * air_density_factor);
-                    
+
                     fr(i,j,k) = umr;
                     fnr(i,j,k) = unr;
                 }
-#ifdef ERF_USE_MORRCOLD                
+#ifdef ERF_USE_MORRCOLD
                 // Snow fall speed - using standard air density correction with exponent 0.54
                 // This follows Heymsfield and Bansemer (2006)
                 if (qps(i,j,k) >= m_qsmall && lams > 0.0) {
                     const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                     amrex::Real ums = air_density_factor * m_as * m_cons3 / std::pow(lams, m_bs);
                     amrex::Real uns = air_density_factor * m_as * m_cons5 / std::pow(lams, m_bs);
-                    
+
                     // Apply fall speed limits
                     ums = std::min(ums, 1.2 * air_density_factor);
                     uns = std::min(uns, 1.2 * air_density_factor);
-                    
+
                     fs(i,j,k) = ums;
                     fns(i,j,k) = uns;
                 }
-                
+
                 // Graupel fall speed - using standard air density correction with exponent 0.54
                 // This follows Heymsfield and Bansemer (2006)
                 if (qpg(i,j,k) >= m_qsmall && lamg > 0.0) {
                     const amrex::Real air_density_factor = std::pow(m_rhosu/rho(i,j,k), 0.54);
                     amrex::Real umg = air_density_factor * m_ag * m_cons7 / std::pow(lamg, m_bg);
                     amrex::Real ung = air_density_factor * m_ag * m_cons8 / std::pow(lamg, m_bg);
-                    
+
                     // Apply fall speed limits
                     umg = std::min(umg, 20.0 * air_density_factor);
                     ung = std::min(ung, 20.0 * air_density_factor);
-                    
+
                     fg(i,j,k) = umg;
                     fng(i,j,k) = ung;
                 }
-#endif                
+#endif
                 // Fix velocities below precipitation regions by propagating values down
                 // If a velocity is zero at level k but nonzero at k+1, use the k+1 value
                 // This matches WRF V3.3+ to prevent spurious accumulation of precipitation
@@ -305,7 +305,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
             }
         }
     }
-    
+
     // Find maximum fall speed across all hydrometeors
     // This matches the RGVM calculation in WRF to determine time splitting
     amrex::Real max_fall_speed = 0.0;
@@ -313,13 +313,13 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
         for (int j = box.loVect()[1]; j <= box.hiVect()[1]; ++j) {
             for (int i = box.loVect()[0]; i <= box.hiVect()[0]; ++i) {
                 // Find maximum fall speed for any species at this grid point
-                amrex::Real local_max = std::max(fr(i,j,k), std::max(fi(i,j,k), 
+                amrex::Real local_max = std::max(fr(i,j,k), std::max(fi(i,j,k),
                                        std::max(fs(i,j,k), std::max(fc(i,j,k), fg(i,j,k)))));
-                
+
                 // Also check number-weighted fall speeds
                 local_max = std::max(local_max, std::max(fnr(i,j,k), std::max(fni(i,j,k),
                                      std::max(fns(i,j,k), std::max(fnc(i,j,k), fng(i,j,k))))));
-                
+
                 // Update global maximum if needed
                 max_fall_speed = std::max(max_fall_speed, local_max);
             }
@@ -331,20 +331,20 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
     //----------------------------------------------------------------------
     int num_split_steps = 1;
     amrex::Real dz_min = m_geom.CellSize(m_axis);
-    
+
     if (max_fall_speed > 0.0) {
         // Calculate Courant number based on maximum fallspeed across all species
         // This matches the NSTEP calculation in WRF
         amrex::Real courant = max_fall_speed * dt / dz_min;
-        
+
         // Calculate number of substeps needed for stability
         // Use ceil to ensure Courant ≤ CFL_MAX
         num_split_steps = static_cast<int>(std::ceil(courant / CFL_MAX));
-        
+
         // Limit to maximum allowed number of substeps
         num_split_steps = std::max(1, std::min(num_split_steps, max_split_steps));
     }
-    
+
     // Duration of each substep
     const amrex::Real dt_sub = dt / static_cast<amrex::Real>(num_split_steps);
 
@@ -357,7 +357,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 for (int k_global = klo; k_global < khi; ++k_global) {
     amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
         const int k = k_local + klo;  // Adjust k to global index
-        
+
         if (k < khi) {  // Skip the top boundary
             //--------------------------------------------------------------
             // Rain fallout
@@ -410,21 +410,21 @@ for (int k_global = klo; k_global < khi; ++k_global) {
 // This follows WRF approach where small hydrometeors are evaporated/sublimated in subsaturated conditions
 amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
     // Calculate saturation ratios
-    amrex::Real evs = std::min(0.99*pres(i,j,k), 
+    amrex::Real evs = std::min(0.99*pres(i,j,k),
                                calc_saturation_vapor_pressure(tabs(i,j,k), 0)); // Water saturation
     amrex::Real eis = std::min(0.99*pres(i,j,k), calc_saturation_vapor_pressure(tabs(i,j,k), 1));
-    
+
     // Make sure ice saturation doesn't exceed water saturation near freezing
     if (eis > evs) eis = evs;
-    
+
     // Calculate saturation mixing ratios
     amrex::Real qvs = 0.622*evs/(pres(i,j,k)-evs);  // Water saturation mixing ratio
     amrex::Real qvi = 0.622*eis/(pres(i,j,k)-eis);  // Ice saturation mixing ratio
-    
+
     // Calculate saturation ratios
     [[maybe_unused]] amrex::Real qvqvs = qv3d(i,j,k)/qvs;  // Saturation ratio for liquid
     [[maybe_unused]] amrex::Real qvqvsi = qv3d(i,j,k)/qvi; // Saturation ratio for ice
-    
+
     // At subsaturation, remove small amounts of cloud/precip water
     // This follows WRF implementation with threshold of 1.E-8
     if (qvqvs < 0.9) {
@@ -583,7 +583,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                         rain_arr(i,j,klo) += flux_qr(i,j,klo) * dt_sub;
                         snow_arr(i,j,klo) += flux_qs(i,j,klo) * dt_sub;
                         graup_arr(i,j,klo) += flux_qg(i,j,klo) * dt_sub;
-                        
+
                         // Also accumulate cloud water and cloud ice sedimentation
                         rain_arr(i,j,klo) += flux_qc(i,j,klo) * dt_sub;
                         snow_arr(i,j,klo) += flux_qi(i,j,klo) * dt_sub;
@@ -632,7 +632,7 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
 
     // Note: Accumulated precipitation now includes contributions from:
     // - rain_accum: rain + cloud water sedimentation
-    // - snow_accum: snow + cloud ice sedimentation 
+    // - snow_accum: snow + cloud ice sedimentation
     // - graup_accum: graupel sedimentation
     // This matches the WRF implementation which tracks all surface precipitation
 }

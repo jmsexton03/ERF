@@ -2,7 +2,7 @@
 #include "ERF_IndexDefines.H"
 #include "ERF_TileNoZ.H"
 #include "ERF_EOS.H"
- 
+
 using namespace amrex;
 
 /**
@@ -156,7 +156,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                 qi = 0.0;
                 qn_array(i,j,k) = 0.0;
                 qt_array(i,j,k) = qv;
-                
+
                 // Update temperature (endothermic since we evap/sublime)
                 tabs_array(i,j,k) -= fac_cond * delta_qc + fac_sub * delta_qi;
                 theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
@@ -175,7 +175,7 @@ Morrison::Cloud (const SolverChoice& /*sc*/)
                                                       tabs_array, pres_array,
                                                       qv_array  , qc_array  , qi_array,
                                                       qn_array  , qt_array);
-                    
+
                     // Update theta
                     theta_array(i,j,k) = getThgivenPandT(tabs_array(i,j,k), 100.0*pres_array(i,j,k), rdOcp);
                 }
