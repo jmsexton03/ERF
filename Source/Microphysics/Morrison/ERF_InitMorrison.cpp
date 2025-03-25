@@ -37,9 +37,33 @@ Morrison::Init (const MultiFab& cons_in,
     m_detJ_cc   = detJ_cc.get();
 
     MicVarMap.resize(m_qmoist_size);
+
+      MicVarMap = {
+      MicVar_Morr::qt,    // Total cloud water
+      MicVar_Morr::qn,    // Cloud condensate (liquid + ice)
+      MicVar_Morr::qv,    // Cloud vapor
+      MicVar_Morr::qcl,   // Cloud water
+      MicVar_Morr::qci,   // Cloud ice
+      MicVar_Morr::qp,    // Total precip
+      MicVar_Morr::qpr,   // Precip rain
+      MicVar_Morr::qps,   // Precip ice/snow
+      MicVar_Morr::qpg,   // Graupel
+      MicVar_Morr::nc,    // Cloud droplet number
+      MicVar_Morr::nr,    // Rain number
+      MicVar_Morr::ni,    // Cloud ice number
+      MicVar_Morr::ns,    // Snow number
+      MicVar_Morr::ng,    // Graupel number
+      MicVar_Morr::rain_accum,  // Rain accumulation
+      MicVar_Morr::snow_accum,  // Snow accumulation
+      MicVar_Morr::graup_accum, // Graupel accumulation
+      MicVar_Morr::omega        // Vertical velocity
+    };
+    /*
     MicVarMap = {MicVar_Morr::qt, MicVar_Morr::qv , MicVar_Morr::qcl, MicVar_Morr::qci,
                  MicVar_Morr::qp, MicVar_Morr::qpr, MicVar_Morr::qps, MicVar_Morr::qpg,
-                 MicVar_Morr::rain_accum, MicVar_Morr::snow_accum, MicVar_Morr::graup_accum};
+                 MicVar_Morr::rain_accum, MicVar_Morr::snow_accum, MicVar_Morr::graup_accum,
+                 MicVar_Morr::qn, MicVar_Morr::nc, MicVar_Morr::nr, MicVar_Morr::ni,
+                 MicVar_Morr::ns,MicVar_Morr::ng, MicVar_Morr::omega};*/
 
     // initialize microphysics variables
     for (auto ivar = 0; ivar < MicVar_Morr::NumVars; ++ivar) {

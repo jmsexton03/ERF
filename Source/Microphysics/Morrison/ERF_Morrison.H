@@ -349,7 +349,7 @@ public:
 
 private:
     // Number of qmoist variables (qt, qv, qcl, qci, qp, qpr, qps, qpg)
-    int m_qmoist_size = 11;
+    int m_qmoist_size = 18;
 
     // Number of qstate variables
     int m_qstate_size = 6;
