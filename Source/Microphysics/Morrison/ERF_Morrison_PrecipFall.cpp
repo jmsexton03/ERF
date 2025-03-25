@@ -355,7 +355,7 @@ Morrison::PrecipFall(const SolverChoice& /*sc*/)
 // This maintains proper conservation during sedimentation
 //------------------------------------------------------------------
 for (int k_global = klo; k_global < khi; ++k_global) {
-    amrex::ParallelFor(box, [=] AMREX_GPU_HOST (int i, int j, int k_local) {
+    amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k_local) {
         const int k = k_local + klo;  // Adjust k to global index
 
         if (k < khi) {  // Skip the top boundary
@@ -408,7 +408,7 @@ for (int k_global = klo; k_global < khi; ++k_global) {
 }
 // Check for subsaturation and remove small amounts of cloud/precipitation water
 // This follows WRF approach where small hydrometeors are evaporated/sublimated in subsaturated conditions
-amrex::ParallelFor(box, [=] AMREX_GPU_HOST (int i, int j, int k) {
+amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
     // Calculate saturation ratios
     amrex::Real evs = std::min(0.99*pres(i,j,k),
                                calc_saturation_vapor_pressure(tabs(i,j,k), 0)); // Water saturation

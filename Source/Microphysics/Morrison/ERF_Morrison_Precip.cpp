@@ -139,7 +139,7 @@ Morrison::Precip(const SolverChoice& /* sc */)
 
 
         // Parallel execution over the box
-        amrex::ParallelFor(box, [=] AMREX_GPU_HOST (int i, int j, int k) {
+        amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Variables for storing process rates
 amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             amrex::Real pracs, npracs, psacwg, pracg, npracg;
