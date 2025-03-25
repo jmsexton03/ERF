@@ -480,42 +480,43 @@ amrex::ParallelFor(box, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 [[maybe_unused]] amrex::Real tend_qi = 0.0;
                 [[maybe_unused]] amrex::Real tend_ni = 0.0;
                 amrex::Real tend_qc = 0.0, tend_nc = 0.0;
+                amrex::Real inv_dz_min= 1.0 / dz_min;
 
                 // Flux divergence for interior cells
                 if (k < khi) {
-                    tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qr -= flux_qr(i,j,k) / (rho(i,j,k) * inv_dz_min);
 #ifdef ERF_USE_MORRCOLD
-                    tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qs -= flux_qs(i,j,k) / (rho(i,j,k) * dz_min);
+                    tend_qg -= flux_qg(i,j,k) / (rho(i,j,k) * dz_min);
+                    tend_qi -= flux_qi(i,j,k) / (rho(i,j,k) * dz_min);
 #endif
-                    tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qc -= flux_qc(i,j,k) / (rho(i,j,k) * dz_min);
 
-                    tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nr -= flux_nr(i,j,k) / (rho(i,j,k) * dz_min);
 #ifdef ERF_USE_MORRCOLD
-                    tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_ns -= flux_ns(i,j,k) / (rho(i,j,k) * dz_min);
+                    tend_ng -= flux_ng(i,j,k) / (rho(i,j,k) * dz_min);
+                    tend_ni -= flux_ni(i,j,k) / (rho(i,j,k) * dz_min);
 #endif
-                    tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nc -= flux_nc(i,j,k) / (rho(i,j,k) * dz_min);
                 }
 
     if (k > klo && k < khi) {  // Add flux from below only if not top layer
-                    tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qr += flux_qr(i,j,k-1) / (rho(i,j,k) * dz_min);
 #ifdef ERF_USE_MORRCOLD
-                    tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qs += flux_qs(i,j,k-1) / (rho(i,j,k) * dz_min);
+                    tend_qg += flux_qg(i,j,k-1) / (rho(i,j,k) * dz_min);
+                    tend_qi += flux_qi(i,j,k-1) / (rho(i,j,k) * dz_min);
 #endif
-                    tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_qc += flux_qc(i,j,k-1) / (rho(i,j,k) * dz_min);
 
-                    tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nr += flux_nr(i,j,k-1) / (rho(i,j,k) * dz_min);
 #ifdef ERF_USE_MORRCOLD
-                    tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
-                    tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_ns += flux_ns(i,j,k-1) / (rho(i,j,k) * dz_min);
+                    tend_ng += flux_ng(i,j,k-1) / (rho(i,j,k) * dz_min);
+                    tend_ni += flux_ni(i,j,k-1) / (rho(i,j,k) * dz_min);
 #endif
-                    tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * m_geom.CellSize(m_axis));
+                    tend_nc += flux_nc(i,j,k-1) / (rho(i,j,k) * dz_min);
                 }
 
                 // Apply tendencies

@@ -15,8 +15,10 @@ void
 Morrison::IceFall(const SolverChoice& /*sc*/)
 {
     BL_PROFILE("Morrison::IceFall()");
-    amrex::Print()<<"Got to IceFall"<<std::endl;
-
+#ifdef AMREX_USE_GPU
+    amrex::Print()<<"Unclear whether IceFall implemented properly for GPUS"<<std::endl;
+#else
+#ifdef ERF_USE_COLDMORR
     // Local vertical indexing
     const int klo = zlo;
     const int khi = zhi;
@@ -191,7 +193,7 @@ Morrison::IceFall(const SolverChoice& /*sc*/)
 
         // Calculate number of sub-timesteps needed for stability
         int num_split_steps = 1;
-        amrex::Real dz_min = m_geom.CellSize(m_axis);
+        amrex::Real dz_min = m_geom.CellSizeArray(m_axis);
 
         if (max_fall_speed > 0.0) {
             // Calculate Courant number
@@ -251,13 +253,13 @@ Morrison::IceFall(const SolverChoice& /*sc*/)
 
                         // Flux divergence for cell k
                         if (k < khi) {
-                            tend_qi -= fluxqi_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
-                            tend_ni -= fluxni_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                            tend_qi -= fluxqi_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSizeArray(m_axis));
+                            tend_ni -= fluxni_arr(i,j,k) / (rho_arr(i,j,k) * m_geom.CellSizeArray(m_axis));
                         }
 
                         if (k > klo) {
-                            tend_qi += fluxqi_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
-                            tend_ni += fluxni_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSize(m_axis));
+                            tend_qi += fluxqi_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSizeArray(m_axis));
+                            tend_ni += fluxni_arr(i,j,k-1) / (rho_arr(i,j,k) * m_geom.CellSizeArray(m_axis));
                         }
 
                         // Apply tendencies
@@ -290,4 +292,6 @@ Morrison::IceFall(const SolverChoice& /*sc*/)
             qt_arr(i,j,k) = qv_arr(i,j,k) + qn_arr(i,j,k);
         });
     }
+#endif
+#endif
 }

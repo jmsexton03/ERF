@@ -107,8 +107,12 @@ Morrison::Init (const MultiFab& cons_in,
     // Initialize thermodynamic variables
     initialize_thermodynamics(geom);
 
+#ifndef AMREX_USE_GPU
     // Initialize hydrometeor size distributions
     initialize_size_distributions();
+#else
+	    amrex::Print()<<"Unclear whether initialize_size_distribution implemented properly for GPUS"<<std::endl;
+#endif
 
     // Initialize height and vertical coordinate information
     initialize_vertical_grid(z_phys_nd, detJ_cc);

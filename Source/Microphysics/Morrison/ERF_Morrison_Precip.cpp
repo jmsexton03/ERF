@@ -154,11 +154,11 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             [[maybe_unused]] amrex::Real prds;
             [[maybe_unused]] amrex::Real prg;
             amrex::Real evpms, evpmg;
-            amrex::Real nmults;
+            [[maybe_unused]] amrex::Real nmults;
             [[maybe_unused]] amrex::Real nmultr;
             amrex::Real qmults;
             [[maybe_unused]] amrex::Real qmultr;
-            amrex::Real nmultg;
+            [[maybe_unused]] amrex::Real nmultg;
             [[maybe_unused]] amrex::Real nmultrg;
             amrex::Real qmultg;
             [[maybe_unused]] amrex::Real qmultrg;
@@ -202,7 +202,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             amrex::Real lamc = 0.0, lamr = 0.0, lami = 0.0, lams = 0.0, lamg = 0.0;
             amrex::Real pgam = 0.0;
             amrex::Real n0c = 0.0, n0r = 0.0, n0i = 0.0, n0s = 0.0, n0g = 0.0;
-
+#ifndef AMREX_USE_GPU
             // Calculate size distribution parameters
             size_distributions_params(
                                       qc, qi, qr, qs, qg,
@@ -210,6 +210,9 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                                       rho, temp, pres,
                                       lamc, lamr, lami, lams, lamg, pgam,
                                       n0c, n0r, n0i, n0s, n0g);
+#else
+	    amrex::Print()<<"Unclear whether size_distribution_params implemented properly for GPUS"<<std::endl;
+#endif
 // unclear where ccn should live
 #if 0
             //----------------------------------------------------------------------

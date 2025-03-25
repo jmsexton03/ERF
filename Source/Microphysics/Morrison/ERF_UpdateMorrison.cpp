@@ -177,7 +177,9 @@ Morrison::ComputeRadarReflectivity()
     BL_PROFILE("Morrison::ComputeRadarReflectivity()");
 
     if (!m_do_radar_ref || !m_radar) return;
-
+#ifdef AMREX_USE_GPU
+    amrex::Print()<<"Unclear whether ComputeRadarReflectivity implemented properly for GPUS"<<std::endl;
+#else
     // Loop through grids
     for (MFIter mfi(*mic_fab_vars[MicVar_Morr::tabs]); mfi.isValid(); ++mfi) {
         const Box& box = mfi.validbox();
@@ -359,6 +361,7 @@ Morrison::ComputeRadarReflectivity()
             });
         }
     }
+#endif
 }
 #if 0
    /**
@@ -533,7 +536,7 @@ Morrison::ComputeRadarReflectivity()
                 const amrex::Real ng = hydro_ng(i,j,k);
 
                 // Vertical index for 1D profile data
-                const int k_1d = k - m_geom.ProbLo(2) / m_geom.CellSize(2);
+                const int k_1d = k - m_geom.ProbLo(2) / m_geom.CellSizeArray(2);
 
                 // Initialize process rates
                 amrex::Real prd = 0.0;   // Deposition/sublimation of cloud ice
