@@ -475,10 +475,10 @@ Morrison::initialize_size_distributions ()
 
         // Get array accessors
         auto const& hydro_qc = mic_fab_vars[MicVar_Morr::qcl]->array(mfi);
-        auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
+        [[maybe_unused]] auto const& hydro_qi = mic_fab_vars[MicVar_Morr::qci]->array(mfi);
         auto const& hydro_qr = mic_fab_vars[MicVar_Morr::qpr]->array(mfi);
-        auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
-        auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
+        [[maybe_unused]] auto const& hydro_qs = mic_fab_vars[MicVar_Morr::qps]->array(mfi);
+        [[maybe_unused]] auto const& hydro_qg = mic_fab_vars[MicVar_Morr::qpg]->array(mfi);
 
         auto const& hydro_nc = mic_fab_vars[MicVar_Morr::nc]->array(mfi);
         auto const& hydro_nr = mic_fab_vars[MicVar_Morr::nr]->array(mfi);

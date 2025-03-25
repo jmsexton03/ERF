@@ -211,7 +211,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                                       lamc, lamr, lami, lams, lamg, pgam,
                                       n0c, n0r, n0i, n0s, n0g);
 #else
-            amrex::Print()<<"Unclear whether size_distribution_params implemented properly for GPUS"<<std::endl;
+            AMREX_DEVICE_PRINTF("Unclear whether size_distribution_params implemented properly for GPUS\n");
 #endif
 // unclear where ccn should live
 #if 0
