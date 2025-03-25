@@ -466,7 +466,10 @@ Morrison::initialize_thermodynamics (const Geometry& /*geom*/)
 void
 Morrison::initialize_size_distributions ()
 {
-    // Initialize size distributions for hydrometeors
+#ifdef AMREX_USE_GPU
+    amrex::Print()<<"Unclear whether initialize_size_distribution implemented properly for GPUS"<<std::endl;
+#else
+  // Initialize size distributions for hydrometeors
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -760,6 +763,7 @@ Morrison::initialize_size_distributions ()
             hydro_ng(i,j,k) = amrex::max(hydro_ng(i,j,k), 0.0);
         });
     } // mfi
+#endif
 }
 
 /**
