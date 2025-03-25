@@ -18,7 +18,7 @@ Morrison::IceFall(const SolverChoice& /*sc*/)
 #ifdef AMREX_USE_GPU
     amrex::Print()<<"Unclear whether IceFall implemented properly for GPUS"<<std::endl;
 #else
-#ifdef ERF_USE_COLDMORR
+#ifdef ERF_USE_MORRCOLD
     // Local vertical indexing
     const int klo = zlo;
     const int khi = zhi;

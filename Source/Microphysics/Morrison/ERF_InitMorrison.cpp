@@ -111,7 +111,7 @@ Morrison::Init (const MultiFab& cons_in,
     // Initialize hydrometeor size distributions
     initialize_size_distributions();
 #else
-	    amrex::Print()<<"Unclear whether initialize_size_distribution implemented properly for GPUS"<<std::endl;
+    amrex::Print()<<"Unclear whether initialize_size_distribution implemented properly for GPUS"<<std::endl;
 #endif
 
     // Initialize height and vertical coordinate information
@@ -490,6 +490,12 @@ Morrison::initialize_size_distributions ()
         auto const& thermo_temp = mic_fab_vars[MicVar_Morr::tabs]->array(mfi);
         auto const& thermo_pres = mic_fab_vars[MicVar_Morr::pres]->array(mfi);
 
+        auto ndcnst = m_ndcnst;
+        auto inum = m_inum;
+        auto rhow = m_rhow;
+        auto pi = m_pi;
+        auto qsmall = m_qsmall;
+
         // Initialize size distribution parameters
         amrex::ParallelFor( box, [=] AMREX_GPU_DEVICE (int i, int j, int k)
         {
@@ -499,8 +505,8 @@ Morrison::initialize_size_distributions ()
             Real pres = thermo_pres(i,j,k);
 
             // Set constant droplet number concentration if specified
-            if (m_inum == 1) {
-              hydro_nc(i,j,k) = m_ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
+            if (inum == 1) {
+              hydro_nc(i,j,k) = ndcnst * 1.0e6 / rho; // Convert from cm^-3 to kg^-1
             }
 
             // Make sure number concentrations are positive
@@ -516,14 +522,14 @@ Morrison::initialize_size_distributions ()
             // ========================================================================
 
             // Cloud droplets
-            if (hydro_qc(i,j,k) > m_qsmall) {
+            if (hydro_qc(i,j,k) > qsmall) {
               // Get pgam from fit to observations of Martin et al. 1994
               Real pgam = 1.0 - 0.7 * exp(-0.008 * 1.e-6 * hydro_nc(i,j,k) * rho);
               pgam = 1.0/(pgam*pgam) - 1.0;
               pgam = amrex::max(pgam, 2.0);
 
               // Calculate shape coefficient
-              Real shape_coef = m_pi/6.0 * m_rhow * (pgam+1.0) * (pgam+2.0) * (pgam+3.0);
+              Real shape_coef = pi/6.0 * rhow * (pgam+1.0) * (pgam+2.0) * (pgam+3.0);
 
               // Lambda bounds (limits to between 2 and 50 microns mean size)
               Real lambda_min = (pgam+1.0)/50.0e-6;
@@ -541,7 +547,7 @@ Morrison::initialize_size_distributions ()
                 hydro_nc(i,j,k) = pow(lambda_c, 3.0) * hydro_qc(i,j,k)/shape_coef;
               }
             }
-
+#ifdef ERF_USE_MORRCOLD
             // Cloud ice
             if (hydro_qi(i,j,k) > m_qsmall) {
               // CAM approach - using standard lambda bounds
@@ -559,15 +565,15 @@ Morrison::initialize_size_distributions ()
                 hydro_ni(i,j,k) = pow(lambda_i, 3.0) * hydro_qi(i,j,k)/shape_coef;
               }
             }
-
+#endif
             // Rain
-            if (hydro_qr(i,j,k) > m_qsmall) {
+            if (hydro_qr(i,j,k) > qsmall) {
               // CAM approach - using standard lambda bounds
               Real lambda_min = 1.0/500.0e-6;  // CAM standard bound
               Real lambda_max = 1.0/20.0e-6;   // CAM standard bound
 
-              Real shape_coef = m_pi/6.0 * m_rhow;
-              Real lambda_r = pow(shape_coef * hydro_nr(i,j,k)/hydro_qr(i,j,k), 1.0/3.0);
+              Real shape_coef = pi/6.0 * rhow;
+              Real lambda_r = std::pow(shape_coef * hydro_nr(i,j,k)/hydro_qr(i,j,k), 1.0/3.0);
 
               if (lambda_r < lambda_min) {
                 lambda_r = lambda_min;
@@ -577,7 +583,7 @@ Morrison::initialize_size_distributions ()
                 hydro_nr(i,j,k) = pow(lambda_r, 3.0) * hydro_qr(i,j,k)/shape_coef;
               }
             }
-
+#ifdef ERF_USE_MORRCOLD
             // Snow
             if (hydro_qs(i,j,k) > m_qsmall) {
               // CAM approach - using standard lambda bounds
@@ -613,14 +619,14 @@ Morrison::initialize_size_distributions ()
                 hydro_ng(i,j,k) = pow(lambda_g, 3.0) * hydro_qg(i,j,k)/shape_coef;
               }
             }
-
+#endif
 #else
             // ========================================================================
             // USING WRF APPROACH FOR ALL HYDROMETEORS
             // ========================================================================
 
             // Cloud droplets
-            if (hydro_qc(i,j,k) > m_qsmall && m_inum == 0) {
+            if (hydro_qc(i,j,k) > qsmall && inum == 0) {
               // Calculate air density factor (moist air density)
               Real dum = pres/(287.15*temp);
 
@@ -631,7 +637,7 @@ Morrison::initialize_size_distributions ()
               pgam = amrex::min(pgam, 10.0);
 
               // CONS26 equivalent (coefficient for distribution calculation)
-              Real cons26 = m_pi * m_rhow / 6.0;
+              Real cons26 = pi * rhow / 6.0;
 
               // Calculate gamma function values using tgamma from cmath
               Real gamma_pgam_plus_1 = tgamma(pgam + 1.0);
@@ -658,7 +664,7 @@ Morrison::initialize_size_distributions ()
                                       log(gamma_pgam_plus_1) - log(gamma_pgam_plus_4))/cons26;
               }
             }
-
+#ifdef ERF_USE_MORRCOLD
             // Cloud ice - using bounds from WRF
             if (hydro_qi(i,j,k) > m_qsmall) {
               // Calculate lambda parameter
@@ -680,11 +686,11 @@ Morrison::initialize_size_distributions ()
                 hydro_ni(i,j,k) = n0i / lambda_i;
               }
             }
-
+#endif
             // Rain - using bounds from WRF
-            if (hydro_qr(i,j,k) > m_qsmall) {
+            if (hydro_qr(i,j,k) > qsmall) {
               // Calculate lambda parameter
-              Real lambda_r = pow(m_pi * m_rhow * hydro_nr(i,j,k) / hydro_qr(i,j,k), 1.0/3.0);
+              Real lambda_r = std::pow(pi * rhow * hydro_nr(i,j,k) / hydro_qr(i,j,k), 1.0/3.0);
 
               // Use lambda limits from WRF
               Real lamminr = 1.0/2800.0e-6;  // WRF bound
@@ -693,15 +699,15 @@ Morrison::initialize_size_distributions ()
               // Check for slope and adjust vars
               if (lambda_r < lamminr) {
                 lambda_r = lamminr;
-                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (m_pi * m_rhow);
+                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (pi * rhow);
                 hydro_nr(i,j,k) = n0r / lambda_r;
               } else if (lambda_r > lammaxr) {
                 lambda_r = lammaxr;
-                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (m_pi * m_rhow);
+                Real n0r = pow(lambda_r, 4.0) * hydro_qr(i,j,k) / (pi * rhow);
                 hydro_nr(i,j,k) = n0r / lambda_r;
               }
             }
-
+#ifdef ERF_USE_MORRCOLD
             // Snow - using bounds from WRF
             if (hydro_qs(i,j,k) > m_qsmall) {
               // Calculate lambda parameter
@@ -743,6 +749,7 @@ Morrison::initialize_size_distributions ()
                 hydro_ng(i,j,k) = n0g / lambda_g;
               }
             }
+#endif
 #endif
 
             // Make sure number concentrations are positive (final check)

@@ -211,7 +211,7 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
                                       lamc, lamr, lami, lams, lamg, pgam,
                                       n0c, n0r, n0i, n0s, n0g);
 #else
-	    amrex::Print()<<"Unclear whether size_distribution_params implemented properly for GPUS"<<std::endl;
+            amrex::Print()<<"Unclear whether size_distribution_params implemented properly for GPUS"<<std::endl;
 #endif
 // unclear where ccn should live
 #if 0
@@ -392,7 +392,6 @@ amrex::Real prc, nprc, nprc1, pra, npra, nragg, psacws, npsacws;
             // Description: Rain-ice collisions - new process integration example
             // Fraction: Cloud
             //----------------------------------------------------------------------
-            //F2855
             if (temp <= 273.15 && qr >= 1.0e-8 && qi >= 1.0e-8) {
                 // Determine if rain is heavy enough to convert to graupel
                 const bool convert_to_graupel = (qr >= 0.1e-3);
