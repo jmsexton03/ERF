@@ -117,6 +117,12 @@ function(build_erf_lib erf_lib_name)
     target_compile_definitions(${erf_lib_name} PUBLIC RRTMGP_ENABLE_KOKKOS)
   endif()
 
+  if(ERF_ENABLE_P3) #ERF_ENABLE_SHOC OR ERF_ENABLE_P3)
+    # Extract EAMxx source lists for comparison with ERF's hardcoded lists
+    include(CMake/ListEAMxxSources.cmake)
+    list_eamxx_sources()
+  endif()
+
   ########################### SHOC #################################
   if(ERF_ENABLE_SHOC)
     target_include_directories(${erf_lib_name} PUBLIC
@@ -191,6 +197,25 @@ function(build_erf_lib erf_lib_name)
                   )
     target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_SHOC)
     target_compile_definitions(${erf_lib_name} PUBLIC SCREAM_SHOC_SMALL_KERNELS)              
+  endif()
+
+  if(ERF_ENABLE_P3)
+    # Include the generated source list
+    include(${CMAKE_BINARY_DIR}/eamxx_source_lists/EAMxxP3Sources.cmake)
+
+    # Add sources from E3SM's CMakeLists.txt
+    target_sources(${erf_lib_name} PRIVATE ${EAMXX_P3_SOURCES})
+
+    # Add include directories from E3SM's CMakeLists.txt
+    target_include_directories(${erf_lib_name} PUBLIC ${EAMXX_P3_INCLUDE_DIRS})
+
+    # Also add ERF's P3 interface directory
+    target_include_directories(${erf_lib_name} PUBLIC
+                               $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Source/PhysicsInterfaces/P3>
+                              )
+
+    # Add the missing compile definition
+    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_P3)
   endif()
 
   if(ERF_ENABLE_MORR_FORT)
