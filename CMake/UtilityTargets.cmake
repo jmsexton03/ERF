@@ -80,3 +80,43 @@ add_custom_target(distclean
     COMMENT "Removing all CMake configuration and build artifacts"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# Generate toolchain file from current configuration
+add_custom_target(generate-toolchain
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating toolchain file..."
+    COMMAND ${CMAKE_COMMAND}
+        -DCMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        -DCMAKE_BINARY_DIR="${CMAKE_BINARY_DIR}"
+        -DCMAKE_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}"
+        -DCMAKE_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}"
+        -DCMAKE_C_COMPILER="${CMAKE_C_COMPILER}"
+        -DCMAKE_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+        -DCMAKE_Fortran_COMPILER="${CMAKE_Fortran_COMPILER}"
+        -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+        -DCMAKE_C_FLAGS="${CMAKE_C_FLAGS}"
+        -DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
+        -DCMAKE_Fortran_FLAGS="${CMAKE_Fortran_FLAGS}"
+        -DCMAKE_EXE_LINKER_FLAGS="${CMAKE_EXE_LINKER_FLAGS}"
+        -DCMAKE_SHARED_LINKER_FLAGS="${CMAKE_SHARED_LINKER_FLAGS}"
+        -DCMAKE_MODULE_LINKER_FLAGS="${CMAKE_MODULE_LINKER_FLAGS}"
+        -DERF_ENABLE_MPI="${ERF_ENABLE_MPI}"
+        -DERF_ENABLE_OPENMP="${ERF_ENABLE_OPENMP}"
+        -DERF_ENABLE_CUDA="${ERF_ENABLE_CUDA}"
+        -DERF_ENABLE_HIP="${ERF_ENABLE_HIP}"
+        -DERF_ENABLE_SYCL="${ERF_ENABLE_SYCL}"
+        -DCMAKE_CUDA_COMPILER="${CMAKE_CUDA_COMPILER}"
+        -DCMAKE_CUDA_FLAGS="${CMAKE_CUDA_FLAGS}"
+        -DCMAKE_HIP_COMPILER="${CMAKE_HIP_COMPILER}"
+        -DCMAKE_HIP_FLAGS="${CMAKE_HIP_FLAGS}"
+        -DAMREX_CUDA_ARCH="${AMReX_CUDA_ARCH}"
+        -DAMREX_AMD_ARCH="${AMReX_AMD_ARCH}"
+        -DMPI_C_COMPILER="${MPI_C_COMPILER}"
+        -DMPI_CXX_COMPILER="${MPI_CXX_COMPILER}"
+        -DMPI_Fortran_COMPILER="${MPI_Fortran_COMPILER}"
+        -DTEMPLATE_FILE="${CMAKE_SOURCE_DIR}/CMake/ToolchainTemplate.cmake.in"
+        -DOUTPUT_FILE="${CMAKE_BINARY_DIR}/erf_toolchain.cmake"
+        -P "${CMAKE_SOURCE_DIR}/CMake/GenerateToolchain.cmake"
+    COMMENT "Generating erf_toolchain.cmake from current configuration"
+    VERBATIM
+)
+

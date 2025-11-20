@@ -155,7 +155,7 @@ detect_cray_system() {
         log_verbose "Detected Cray PE: ${PE_ENV}"
     fi
     
-    return $on_cray
+    return $((1-on_cray))
 }
 
 # ==============================================================================

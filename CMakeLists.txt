@@ -1,4 +1,6 @@
 ############################ BASE ######################################
+# Add module path for Cray detection modules
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/CMake)
 
 cmake_minimum_required (VERSION 3.14 FATAL_ERROR)
 
@@ -14,7 +16,7 @@ elseif(DEFINED ENV{CRAY_SETUP_COMPLETE})
     message(STATUS "Using pre-configured Cray environment")
 else()
     # Check if auto-detection is enabled (via CMake flag or env var)
-    if(ERF_ENABLE_CRAY_AUTO_FIXES OR DEFINED ENV{ERF_ENABLE_CRAY_AUTO_FIXES})
+    if(ERF_ENABLE_CRAY_AUTO_FIXES OR $ENV{ERF_ENABLE_CRAY_AUTO_FIXES})
         message(STATUS "Cray auto-detection enabled")
         include(CrayCompilerDetection)
     elseif(DEFINED ENV{CRAYPE_VERSION})
