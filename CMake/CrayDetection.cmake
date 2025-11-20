@@ -17,7 +17,7 @@
 # Set Cray context for hierarchical logging
 list(APPEND CMAKE_MESSAGE_CONTEXT "Cray")
 
-if(NOT (ERF_ENABLE_CRAY_AUTO_FIXES OR DEFINED ENV{ERF_ENABLE_CRAY_AUTO_FIXES}))
+if(NOT("${ERF_ENABLE_CRAY_AUTO_FIXES}" OR "$ENV{ERF_ENABLE_CRAY_AUTO_FIXES}"))
     message(STATUS "Auto-fixes disabled by user")
     list(POP_BACK CMAKE_MESSAGE_CONTEXT)
     return()
