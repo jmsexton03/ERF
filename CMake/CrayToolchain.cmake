@@ -5,8 +5,8 @@ if(DEFINED __CRAY_TOOLCHAIN_LOADED)
 endif()
 set(__CRAY_TOOLCHAIN_LOADED TRUE)
 
-# Set system
-set(CMAKE_SYSTEM_NAME CrayLinuxEnvironment)
+# Set system (use Linux to avoid CLE warnings)
+set(CMAKE_SYSTEM_NAME Linux)
 
 # Force enable Cray auto-fixes when using toolchain
 set(ERF_ENABLE_CRAY_AUTO_FIXES ON CACHE BOOL "Enabled by toolchain" FORCE)
