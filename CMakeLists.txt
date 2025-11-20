@@ -5,9 +5,24 @@ cmake_minimum_required (VERSION 3.14 FATAL_ERROR)
 # Set main ERF context
 list(APPEND CMAKE_MESSAGE_CONTEXT "ERF")
 
-# Include Cray compiler detection BEFORE project() to set compilers
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake")
-include(CrayCompilerDetection)
+# Single option controls all Cray auto-features (OFF by default)
+option(ERF_ENABLE_CRAY_AUTO_FIXES "Enable automatic Cray detection and fixes" OFF)
+
+if(CMAKE_TOOLCHAIN_FILE)
+    message(STATUS "Using CMake toolchain: ${CMAKE_TOOLCHAIN_FILE}")
+elseif(DEFINED ENV{CRAY_SETUP_COMPLETE})
+    message(STATUS "Using pre-configured Cray environment")
+else()
+    # Check if auto-detection is enabled (via CMake flag or env var)
+    if(ERF_ENABLE_CRAY_AUTO_FIXES OR DEFINED ENV{ERF_ENABLE_CRAY_AUTO_FIXES})
+        message(STATUS "Cray auto-detection enabled")
+        include(CrayCompilerDetection)
+    elseif(DEFINED ENV{CRAYPE_VERSION})
+        message(STATUS "Detected Cray system but auto-detection is OFF")
+        message(STATUS "  To enable: -DERF_ENABLE_CRAY_AUTO_FIXES=ON")
+        message(STATUS "  Or: export ERF_ENABLE_CRAY_AUTO_FIXES=1")
+    endif()
+endif()
 
 if(ERF_ENABLE_MORR_FORT OR ERF_ENABLE_NOAHMP)
   project(ERF CXX C Fortran)
@@ -108,8 +123,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake")
 include(CMakePackageConfigHelpers)
 
-# Include Cray/Perlmutter auto-detection and fixes
-include(CrayDetection)
+include(CrayDetection OPTIONAL)
 include(UtilityTargets)
 
 ########################## OPTIONS #####################################
