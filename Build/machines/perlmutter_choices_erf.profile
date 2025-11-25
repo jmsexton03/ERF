@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# System Profile - Can be used in module-only or interactive mode
+# System Profile - Perlmutter (NVIDIA A100)
 # ==============================================================================
 
-# SYSTEM CONFIGURATION - SET THIS FOR EACH MACHINE
+# SYSTEM CONFIGURATION
 SYSTEM_NAME="perlmutter"
 
 # Set up paths
@@ -33,12 +33,17 @@ module load gcc-native/13.2 cmake cudatoolkit cray-hdf5-parallel cray-netcdf-hdf
 # Automatically included with module load gpu
 # export MPICH_GPU_SUPPORT_ENABLED=1
 
+# Basic compiler wrappers (for CMake)
+export CC=cc
+export CXX=CC
+export FC=ftn
+
 echo "Modules loaded for ${SYSTEM_NAME}"
 echo "Paths: Source=$ERF_SOURCE_DIR | Build=$ERF_BUILD_DIR | Install=$ERF_INSTALL_DIR"
 
-# Skip menu if explicitly requested
-if [ -n "$ERF_SKIP_CONFIG_MENU" ]; then
-    echo "Skipping config menu (ERF_SKIP_CONFIG_MENU set)"
+# Skip menu if non-interactive or explicitly requested
+if [ -n "$ERF_SKIP_CONFIG_MENU" ] || [ ! -t 0 ]; then
+    echo "Skipping config menu (non-interactive or ERF_SKIP_CONFIG_MENU set)"
     return 0 2>/dev/null || exit 0
 fi
 
@@ -93,14 +98,20 @@ case $choice in
         export ERF_ENABLE_CRAY_AUTO_FIXES=OFF
         echo "  Sets: CC, CXX, CFLAGS, LDFLAGS, LIBS in shell"
         echo "  Usage: cmake .."
-        echo "  Usage:  make .."
+        echo ""
+        echo "  Note: These env vars only affect CMake builds."
+        echo "        For GNUMake, use COMP=gnu or pass flags via make variables:"
+        echo "          make COMP=gnu"
+        echo "          make COMP=gnu CXXFLAGS_EXTRA=\"-march=znver3\""
+        echo "        Or create Exec/<problem>/Make.local with custom flags."
+        echo "        (GNUMake builds generally not needed - CMake is preferred)"
         ;;
         
     # === MANUAL/EXPLICIT ===
     4)
         echo "GPU-aware MPI with explicit flags (tested pattern)"
         export MPICH_GPU_SUPPORT_ENABLED=1
-        export CRAY_ACCEL_TARGET=nvidia80  # CUSTOMIZE PER SYSTEM
+        export CRAY_ACCEL_TARGET=nvidia80
         export AMREX_CUDA_ARCH=8.0
         export CXXFLAGS="${CXXFLAGS} -march=znver3"
         export CFLAGS="${CFLAGS} -march=znver3"
@@ -108,6 +119,14 @@ case $choice in
         export ERF_ENABLE_CRAY_AUTO_FIXES=OFF
         echo "  Explicit: GPU target, MPI libs, optimization flags"
         echo "  Usage: cmake .."
+        echo ""
+        echo "  Note: May not work with Kokkos builds."
+        echo "        Kokkos has its own architecture detection and flag handling."
+        echo "        For explicitly configured Kokkos builds, use option 6 instead."
+        echo ""
+        echo "  Note: For GNUMake, these are set differently:"
+        echo "          make COMP=gnu USE_CUDA=TRUE CUDA_ARCH=80"
+        echo "        See ERF GNUMake documentation for details."
         ;;
         
     5)
@@ -120,17 +139,34 @@ case $choice in
     # === REPRODUCIBLE/TRACKED ===
     6)
         echo "Generated toolchain (from previous successful build)"
-        export CMAKE_TOOLCHAIN_FILE="$ERF_BUILD_DIR/erf_toolchain.cmake"
+        TOOLCHAIN_PATH="$ERF_SOURCE_DIR/Build/machines/${SYSTEM_NAME}_toolchain.cmake"
+        export CMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_PATH"
         echo "  Captures: compilers, flags, paths from working build"
-        echo "  Generate: cmake --build $ERF_BUILD_DIR --target generate-toolchain"
-        echo "  Usage: cmake .."
+        echo "  Generate once: cmake --build $ERF_BUILD_DIR --target generate-toolchain"
+        echo "  Then copy: cp $ERF_BUILD_DIR/erf_toolchain.cmake $TOOLCHAIN_PATH"
+        echo ""
+        echo "  Toolchain location: $TOOLCHAIN_PATH"
+        echo "  (Can be committed to version control for reproducibility)"
+        echo ""
+        echo "  Usage (env var already set):"
+        echo "    cmake .."
+        echo "  Or explicitly:"
+        echo "    cmake -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_PATH .."
         ;;
         
     7)
         echo "CMake config file (version-controlled cache)"
         export ERF_CMAKE_CONFIG="$ERF_SOURCE_DIR/Build/machines/${SYSTEM_NAME}_config.cmake"
-        echo "  Pre-written: system-specific cache variables"
-        echo "  Usage: cmake -C \$ERF_CMAKE_CONFIG .."
+        echo "  Pre-written: system-specific CMake cache variables"
+        echo "  Hand-written file with set() commands"
+        echo ""
+        echo "  Config location: $ERF_CMAKE_CONFIG"
+        echo "  (Must be created manually or from template)"
+        echo ""
+        echo "  Usage (env var already set):"
+        echo "    cmake -C \$ERF_CMAKE_CONFIG .."
+        echo "  Or explicitly:"
+        echo "    cmake -C $ERF_CMAKE_CONFIG .."
         ;;
         
     *)
@@ -138,5 +174,14 @@ case $choice in
         ;;
 esac
 
-echo ""#!/bin/bash
-
+echo ""
+echo "=========================================="
+echo "Environment configured for ${SYSTEM_NAME}"
+echo "=========================================="
+echo "CMake build:"
+echo "  mkdir build && cd build && cmake .. && make"
+echo ""
+echo "GNUMake build (alternative, not commonly needed):"
+echo "  cd Exec/ABL && make COMP=gnu"
+echo "  Custom flags: create Make.local or use CXXFLAGS_EXTRA="
+echo "=========================================="
