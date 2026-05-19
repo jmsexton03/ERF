@@ -1,0 +1,6 @@
+gem-docs-lite
+
+Included paths:
+- /Docs/
+- /README.rst
+- /LICENSE.md
