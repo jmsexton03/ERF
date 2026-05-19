@@ -1,0 +1,169 @@
+
+ .. role:: cpp(code)
+    :language: c++
+
+ .. _MeshRefinement:
+
+Mesh Refinement
+===============
+
+ERF also allows both dynamic and static mesh refinement with sub-cycling in time at finer levels of refinement.
+Arbitrary integer refinement ratios are allowed although typically ratios of 2, 3 or 4 are used; refinement can also be anisotropic,
+allowing refinement in one coordinate direction but not another.
+
+We utilize two-way coupling, in which the coarse solution is used to provide boundary conditions for the fine solution
+and the fine solution is averaged down onto the coarser level.  In addition, we reflux all advected scalars to ensure conservation.
+For coarse-to-fine communication we provide "ghost cell" data for cell-centered data and tangential momentum components to
+the fine level by interpolating in space and time outside the region covered by the fine level.
+We also interpolate the normal momentum from coarse to fine on the coarse-fine interface itself;
+this ensures mass conservation since the normal momentum is in fact the flux for the density field.
+In order to ensure that the fine momentum on the coarse-fine boundary stays consistent with the
+interpolated coarse values throughout a fine timestep, we also interpolate the source term for
+the normal momentum on the coarse-fine interface.
+When using the anelastic approximation, this ensures that the computation of the updates to the
+fine momentum do not use any values of the perturbational pressure from the coarser level since
+the perturbational pressure is not synchronized between levels.
+
+Note that any tagged region will be covered by one or more boxes.  The user may
+specify the refinement criteria and/or region to be covered, but not the decomposition of the region into
+individual grids.
+
+See the `Gridding`_ section of the AMReX documentation for details of how individual grids are created.
+
+.. _`Gridding`: https://amrex-codes.github.io/amrex/docs_html/ManagingGridHierarchy_Chapter.html
+
+Static Mesh Refinement
+----------------------
+
+For static refinement, we can control the placement of grids by specifying
+the low and high extents (in physical space or index space) of each box.
+
+The following example demonstrates how to tag regions for static refinement.
+In this first example, all cells in the region ((1200,1400,0.)(3000,2400,2048.))
+and in the region ((3200,3400,0.)(4000,4000,2048.)) are tagged for
+one level of refinement.
+
+::
+
+          amr.max_level = 1
+          amr.ref_ratio = 2 2 2
+
+          erf.refinement_indicators = box1 box2
+
+          erf.box1.in_box_lo = 1200 1400 0
+          erf.box1.in_box_hi = 3000 2400 2048
+          erf.box1.max_level = 1
+
+          erf.box2.in_box_lo = 3200 3400 0
+          erf.box2.in_box_hi = 4000 4000 2048
+          erf.box2.max_level = 1
+
+It is possible to refine the box by multiple levels, and to have different levels of refinement for different boxes. For example, if we set
+
+::
+
+          amr.max_level = 2
+          amr.ref_ratio = 2 2 2
+
+          erf.refinement_indicators = box1 box2
+
+          erf.box1.in_box_lo = 1200 1400 0
+          erf.box1.in_box_hi = 3000 2400 2048
+          erf.box1.max_level = 1
+
+          erf.box2.in_box_lo = 3200 3400 0
+          erf.box2.in_box_hi = 4000 4000 2048
+          erf.box2.max_level = 2
+
+box1 is refined up to level 1, but box2 is refined up to level 2. If no max_level is specified for a
+refinement indicator, the region is refined up to the maximum level specified in ``amr.max_level``.
+Error messages are generated to help users adjust the refinements to create a valid box at each level.
+
+
+We note that instead of specifying the physical extent enclosed, we can instead specify the indices of
+the bounding box of the refined region in the index space of that fine level.
+To do this we use
+``in_box_lo_indices`` and ``in_box_hi_indices`` instead of ``in_box_lo`` and ``in_box_hi``.
+If we want to refine the inner region (spanning half the width in each direction) by one level of
+factor 2 refinement, and the domain has 32x64x8 cells at level 0 covering the domain, then we would set
+
+::
+
+          amr.max_level = 1
+          amr.ref_ratio = 2 2 2
+
+          erf.refinement_indicators = box1
+
+          erf.box1.in_box_lo_indices = 16 32  4
+          erf.box1.in_box_hi_indices = 47 95 11
+          erf.box1.max_level = 1
+
+There is also an option to specify the indices of the bounding box of the refined region in the index space of the coarser level, using
+``in_box_lo_indices_crse`` and ``in_box_hi_indices_crse``.  This is useful when the user has a particular region in mind that they want to refine,
+and they know the indices of that region on the coarser level but not on the finer level.  In this case, the code will automatically adjust the
+indices to create a valid box at the finer level.
+
+::
+
+          amr.max_level = 1
+          amr.ref_ratio = 2 2 2
+
+          erf.refinement_indicators = box1
+
+          erf.box1.in_box_lo_indices_crse = 16 32  4
+          erf.box1.in_box_hi_indices_crse = 47 95 11
+          erf.box1.max_level = 1
+
+
+The lo_indices should be divisible by the refinement ratio, and the hi_indices should be one less than a number divisible by the refinement ratio.
+There are no such requirements for the coarse level indices, since the code will adjust them as needed to create a valid box at the finer level.
+The PBL models compute the height of the boundary layer and require that each box goes from the bottom of the domain to the top of the domain.
+The lo/hi indices in the vertical direction should therefore be 0 and (number of cells in z direction - 1) respectively,
+and the number of cells in the z direction should be divisible by the refinement ratio in the vertical direction.
+
+Dynamic Mesh Refinement
+-----------------------
+
+Dynamically created tagging functions are based on runtime data specified in the inputs file.
+These dynamically generated functions test on either state variables or derived variables
+defined in ERF_derive.cpp and included in the derive_lst in Setup.cpp.
+(We note that static refinement can also be achieved by using the refinement criteria as specified below
+but setting ``erf.regrid_int`` to a number greater than the total number of steps that will be taken.)
+
+Available tests include
+
+-  “greater\_than”: :math:`field >= threshold`
+
+-  “less\_than”: :math:`field <= threshold`
+
+-  “adjacent\_difference\_greater”: :math:`max( | \text{difference between any nearest-neighbor cell} | ) >= threshold`
+
+This example adds three user-named criteria –
+hi\_rho: cells with density greater than 1 on level 0, and greater than 2 on level 1 and higher;
+lo\_theta: cells with theta less than 300 that are inside the region ((.25,.25,.25)(.75,.75,.75));
+and adv_diff: cells having a difference in the scalar of 0.01 or more from that of any immediate neighbor.
+The first will trigger up to AMR level 3, the second only to level 1, and the third to level 2.
+The third will be active only when the problem time is between 0.001 and 0.002 seconds.
+
+Note that density and rhoadv_0 are the names of state variables, whereas theta is the name of a derived variable,
+computed by dividing the variable named rhotheta by the variable named density.
+
+::
+
+          erf.refinement_indicators = hi_rho lo_theta advdiff
+
+          erf.hi_rho.max_level = 3
+          erf.hi_rho.value_greater = 1. 2.
+          erf.hi_rho.field_name = density
+
+          erf.lo_theta.max_level = 1
+          erf.lo_theta.value_less = 300
+          erf.lo_theta.field_name = rhotheta
+          erf.lo_theta.in_box_lo = .25 .25 .25
+          erf.lo_theta.in_box_hi = .75 .75 .75
+
+          erf.advdiff.max_level = 2
+          erf.advdiff.adjacent_difference_greater = 0.01
+          erf.advdiff.field_name = rhoadv_0
+          erf.advdiff.start_time = 0.001
+          erf.advdiff.end_time = 0.002
