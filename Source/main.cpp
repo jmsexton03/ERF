@@ -59,7 +59,7 @@ auto finalize_mpi_and_return = [](int code) {
 #ifdef AMREX_USE_MPI
 #ifdef ERF_USE_WW3_COUPLING
     amrex::MPMD::Finalize();
-+#else
+#else
     MPI_Finalize();
 #endif
 #endif
