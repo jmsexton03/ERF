@@ -2,6 +2,12 @@
 
 using namespace amrex;
 
+namespace {
+// Debug isolator for coupled Couette thermodynamics: keep only the sensible
+// contribution in the ocean surface temperature flux budget.
+constexpr bool kSensibleOnlySurfaceHeatFlux = true;
+}
+
 /**
  * @param[in   ] lev            level to operate on
  * @param[in   ] mf_cons        scalar data: temperature, salinity, passsive scalar, etc
@@ -383,12 +389,16 @@ REMORA::bulk_fluxes (int lev, MultiFab* mf_cons, MultiFab* mf_uwind, MultiFab* m
             //  variable stflx(:,:,isalt) in "set_vbc.F".
 
 //            Real one_over_rhow=1.0_rt/rhow;
-            lrflx(i,j,0) = LRad*Hscale2;
-            lhflx(i,j,0) = -LHeat*Hscale2;
+            const Real lrflx_term = kSensibleOnlySurfaceHeatFlux ? 0.0_rt : LRad*Hscale2;
+            const Real lhflx_term = kSensibleOnlySurfaceHeatFlux ? 0.0_rt : -LHeat*Hscale2;
+            const Real srflx_term = kSensibleOnlySurfaceHeatFlux ? 0.0_rt : srflux*Hscale2;
+
+            lrflx(i,j,0) = lrflx_term;
+            lhflx(i,j,0) = lhflx_term;
             shflx(i,j,0) = -SHeat*Hscale2;
             // Note: srflx from NetCDF is in W/m², convert to degC m/s by multiplying by Hscale2
-            stflux(i,j,0,Temp_comp)=(srflux*Hscale2 + lrflx(i,j,0) + lhflx(i,j,0) + shflx(i,j,0)) * mskr(i,j,0);
-            evap(i,j,0) = (LHeat / Hlv+eps) * mskr(i,j,0);
+            stflux(i,j,0,Temp_comp)=(srflx_term + lrflx(i,j,0) + lhflx(i,j,0) + shflx(i,j,0)) * mskr(i,j,0);
+            evap(i,j,0) = (kSensibleOnlySurfaceHeatFlux ? 0.0_rt : (LHeat / Hlv+eps)) * mskr(i,j,0);
             stflux(i,j,0,Salt_comp) = mskr(i,j,0) * (evap(i,j,0)-rain(i,j,0)) / rhow;
         });
 
