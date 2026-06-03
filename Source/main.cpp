@@ -1,3 +1,4 @@
+#define ERF_USE_NOAHMP_MPMD
 #include <iostream>
 
 #include <AMReX.H>
@@ -220,6 +221,9 @@ return code;
         if (!pp_erf.query("max_steps", max_steps)) {
             pp_erf.query("max_step", max_steps);
         }
+
+        std::vector<int> app0_dest_ranks(cons_dummy.local_size());
+
         for (int step = 0; step < max_steps; ++step) {
             // Receive atmospheric forcing data from App 0
             int idb = 0;
@@ -231,9 +235,22 @@ return code;
                 MPI_Status status;
                 MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
                          MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
+
+                app0_dest_ranks[idb] = status.MPI_SOURCE;
             }
 
             lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
+
+            // Send calculated fluxes back to App 0
+            idb = 0;
+            for (MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
+                int global_box_id = mfi.index();
+                int send_count = mfi.tilebox().numPts() * NoahmpOutputComp::NumComps;
+                amrex::Real* send_ptr = lsm.noahmp_output_tmp[idb]->dataPtr();
+
+                MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                         app0_dest_ranks[idb], global_box_id, amrex::MPMD::MyGlobalComm());
+            }
         }
 #endif
     }
