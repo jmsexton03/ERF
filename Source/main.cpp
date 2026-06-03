@@ -203,7 +203,8 @@ return code;
         // 2. Construct dummy MultiFabs for NOAHMP::Init and Advance
         Box box(IntVect(0,0,0), IntVect(n_cell[0]-1, n_cell[1]-1, 0));
         BoxArray ba(box);
-        DistributionMapping dm(ba);
+        DistributionMapping dm;
+        dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
         MultiFab cons_dummy(ba, dm, 1);
         MultiFab xvel_dummy(ba, dm, 1);
         MultiFab yvel_dummy(ba, dm, 1);
