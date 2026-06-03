@@ -3,13 +3,23 @@
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_ParmParse.H>
 
 #include "ERF.H"
 #include "ERF_InputsName.H"
 
-#ifdef ERF_USE_WW3_COUPLING
+#if defined(ERF_USE_WW3_COUPLING) || defined(ERF_USE_NOAHMP_MPMD)
+#define ERF_USE_MPMD
+#endif
+
+#ifdef ERF_USE_MPMD
 #include <mpi.h>
 #include <AMReX_MPMD.H>
+#endif
+
+#ifdef ERF_USE_NOAHMP_MPMD
+// Include the actual NOAHMP header we optimized
+#include <ERF_NOAHMP.H> 
 #endif
 
 std::string inputs_name;
@@ -58,9 +68,9 @@ int main (int argc, char* argv[])
 
 auto finalize_mpi_and_return = [](int code) {
 #ifdef AMREX_USE_MPI
-#ifdef ERF_USE_WW3_COUPLING
+#ifdef ERF_USE_MPMD
     amrex::MPMD::Finalize();
-+#else
+#else
     MPI_Finalize();
 #endif
 #endif
@@ -122,7 +132,8 @@ return code;
             }
         }
     }
-#ifdef ERF_USE_WW3_COUPLING
+
+#ifdef ERF_USE_MPMD
     MPI_Comm comm = amrex::MPMD::Initialize(argc, argv);
     amrex::Initialize(argc,argv,true,comm,add_par);
 #else
@@ -171,7 +182,8 @@ return code;
 
     // destroy timer for profiling
     BL_PROFILE_VAR_STOP(pmain);
-#ifdef ERF_USE_WW3_COUPLING
+
+#ifdef ERF_USE_MPMD
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
 
@@ -180,8 +192,9 @@ return code;
 #endif
 
     amrex::Finalize();
+
 #ifdef AMREX_USE_MPI
-#ifdef ERF_USE_WW3_COUPLING
+#ifdef ERF_USE_MPMD
     amrex::MPMD::Finalize();
 #else
     MPI_Finalize();
