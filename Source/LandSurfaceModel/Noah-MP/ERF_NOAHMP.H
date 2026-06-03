@@ -197,6 +197,10 @@ public:
         return varIdx;
     }
 
+#ifdef ERF_USE_NOAHMP_MPMD
+    static void Run_MPMD_Advance();
+#endif
+
 private:
     // number of lsm data variables
     int m_lsm_data_size = LsmData_NOAHMP::NumVars;

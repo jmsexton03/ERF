@@ -400,3 +400,85 @@ NOAHMP::Advance_With_State (const int& lev,
     }
     Print () << "Noah-MP driver completed" << std::endl;
 };
+
+#ifdef ERF_USE_NOAHMP_MPMD
+void NOAHMP::Run_MPMD_Device()
+{
+    // --- Rank Distribution Validation ---
+    int num_atmos_ranks = amrex::MPMD::NumProcs(0);
+    int num_land_ranks  = amrex::MPMD::NumProcs(1);
+
+    if (num_atmos_ranks > num_land_ranks) {
+        amrex::Warning("WARNING: Noah-MP (App 1) has fewer MPI ranks than ERF (App 0). "
+                       "Because Noah-MP is CPU-bound and ERF is GPU-bound, this will "
+                       "likely result in a severe performance bottleneck. Please allocate "
+                       "more ranks to App 1.");
+    }
+
+    // --- Initialization ---
+    amrex::ParmParse pp_amr("amr");
+    amrex::Vector<int> n_cell(3);
+    pp_amr.getarr("n_cell", n_cell);
+
+    amrex::ParmParse pp_geom("geometry");
+    amrex::Real prob_lo[3], prob_hi[3];
+    pp_geom.getarr("prob_lo", prob_lo);
+    pp_geom.getarr("prob_hi", prob_hi);
+
+    amrex::RealBox lb(prob_lo, prob_hi);
+    amrex::Geometry geom(lb);
+
+    amrex::Box box(amrex::IntVect(0,0,0), amrex::IntVect(n_cell[0]-1, n_cell[1]-1, 0));
+    amrex::BoxArray ba(box);
+
+    // Force Round-Robin mapping to sync with App 0 sending logic
+    amrex::DistributionMapping dm;
+    dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
+
+    amrex::MultiFab cons_dummy(ba, dm, 1);
+    amrex::MultiFab xvel_dummy(ba, dm, 1);
+    amrex::MultiFab yvel_dummy(ba, dm, 1);
+
+    amrex::Real dt = 0.0;
+    amrex::ParmParse pp_erf("erf");
+    pp_erf.query("dt", dt);
+
+    NOAHMP lsm;
+    lsm.Init(0, cons_dummy, geom, dt);
+
+    // --- Driver Loop ---
+    int max_steps = 0;
+    if (!pp_erf.query("max_steps", max_steps)) {
+        pp_erf.query("max_step", max_steps);
+    }
+
+    std::vector<int> app0_dest_ranks(cons_dummy.local_size());
+
+    for (int step = 0; step < max_steps; ++step) {
+        int idb = 0;
+        for (amrex::MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
+            int global_box_id = mfi.index();
+            int recv_count = mfi.tilebox().numPts() * NoahmpInputComp::NumComps;
+            amrex::Real* recv_ptr = lsm.noahmp_input_tmp[idb]->dataPtr();
+
+            MPI_Status status;
+            MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                     MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
+
+            app0_dest_ranks[idb] = status.MPI_SOURCE;
+        }
+
+        lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
+
+        idb = 0;
+        for (amrex::MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
+            int global_box_id = mfi.index();
+            int send_count = mfi.tilebox().numPts() * NoahmpOutputComp::NumComps;
+            amrex::Real* send_ptr = lsm.noahmp_output_tmp[idb]->dataPtr();
+
+            MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                     app0_dest_ranks[idb], global_box_id, amrex::MPMD::MyGlobalComm());
+        }
+    }
+}
+#endif
