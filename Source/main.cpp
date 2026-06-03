@@ -199,11 +199,13 @@ return code;
         RealBox lb(prob_lo, prob_hi);
         Geometry geom(lb);
 
-        // 2. Construct dummy MultiFab for NOAHMP::Init
+        // 2. Construct dummy MultiFabs for NOAHMP::Init and Advance
         Box box(IntVect(0,0,0), IntVect(n_cell[0]-1, n_cell[1]-1, 0));
         BoxArray ba(box);
         DistributionMapping dm(ba);
-        MultiFab dummy_mf(ba, dm, 1);
+        MultiFab cons_dummy(ba, dm, 1);
+        MultiFab xvel_dummy(ba, dm, 1);
+        MultiFab yvel_dummy(ba, dm, 1);
 
         Real dt = 0.0;
         ParmParse pp_erf("erf");
@@ -211,13 +213,27 @@ return code;
 
         // 3. Instantiate optimized Noah-MP driver only
         NOAHMP lsm;
-        lsm.Init(0, dummy_mf, geom, dt);
+        lsm.Init(0, cons_dummy, geom, dt);
 
-        // 4. Execution loop (Logic for P2P syncing goes here)
+        // 4. Execution loop (Synchronized with App 0)
         int max_steps = 0;
-        pp_erf.query("max_steps", max_steps);
+        if (!pp_erf.query("max_steps", max_steps)) {
+            pp_erf.query("max_step", max_steps);
+        }
         for (int step = 0; step < max_steps; ++step) {
-            // lsm.Advance();
+            // Receive atmospheric forcing data from App 0
+            int idb = 0;
+            for (MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
+                int global_box_id = mfi.index();
+                int recv_count = mfi.tilebox().numPts() * NoahmpInputComp::NumComps;
+                amrex::Real* recv_ptr = lsm.noahmp_input_tmp[idb]->dataPtr();
+
+                MPI_Status status;
+                MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                         MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
+            }
+
+            lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
         }
 #endif
     }

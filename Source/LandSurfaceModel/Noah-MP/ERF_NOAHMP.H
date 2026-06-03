@@ -247,6 +247,7 @@ private:
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_input_tmp;
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_output_tmp;
 
+public:
     // Plot frequency
     int m_plot_int_1 = -1;
 };
