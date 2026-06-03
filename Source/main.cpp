@@ -159,25 +159,67 @@ return code;
     // wallclock time
     const Real strt_total = Real(amrex::second());
 
-    {
-        // constructor - reads in parameters from inputs file
-        //             - sizes multilevel arrays and data structures
-        ERF erf;
+    int app_id = amrex::MPMD::AppNum();
 
-        // initialize AMR data
-        erf.InitData();
+    if (app_id == 0) {
+        {
+            // constructor - reads in parameters from inputs file
+            //             - sizes multilevel arrays and data structures
+            ERF erf;
 
-        // advance solution to final time
-        erf.Evolve();
+            // initialize AMR data
+            erf.InitData();
 
-        // wallclock time
-        Real end_total = Real(amrex::second()) - strt_total;
+            // advance solution to final time
+            erf.Evolve();
 
-        // print wallclock time
-        ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
-        if (erf.Verbose()) {
-            amrex::Print() << "\nTotal Time: " << end_total << '\n';
+            // wallclock time
+            Real end_total = Real(amrex::second()) - strt_total;
+
+            // print wallclock time
+            ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
+            if (erf.Verbose()) {
+                amrex::Print() << "\nTotal Time: " << end_total << '\n';
+            }
         }
+    } else if (app_id == 1) {
+#ifdef ERF_USE_NOAHMP_MPMD
+        // Memory-optimized land branch
+
+        // 1. Manually parse geometry for MultiFab setup
+        ParmParse pp_amr("amr");
+        Vector<int> n_cell(3);
+        pp_amr.getarr("n_cell", n_cell);
+
+        ParmParse pp_geom("geometry");
+        Real prob_lo[3], prob_hi[3];
+        pp_geom.getarr("prob_lo", prob_lo);
+        pp_geom.getarr("prob_hi", prob_hi);
+
+        RealBox lb(prob_lo, prob_hi);
+        Geometry geom(lb);
+
+        // 2. Construct dummy MultiFab for NOAHMP::Init
+        Box box(IntVect(0,0,0), IntVect(n_cell[0]-1, n_cell[1]-1, 0));
+        BoxArray ba(box);
+        DistributionMapping dm(ba);
+        MultiFab dummy_mf(ba, dm, 1);
+
+        Real dt = 0.0;
+        ParmParse pp_erf("erf");
+        pp_erf.query("dt", dt);
+
+        // 3. Instantiate optimized Noah-MP driver only
+        NOAHMP lsm;
+        lsm.Init(0, dummy_mf, geom, dt);
+
+        // 4. Execution loop (Logic for P2P syncing goes here)
+        int max_steps = 0;
+        pp_erf.query("max_steps", max_steps);
+        for (int step = 0; step < max_steps; ++step) {
+            // lsm.Advance();
+        }
+#endif
     }
 
     // destroy timer for profiling
