@@ -234,6 +234,13 @@ VPATH_LOCATIONS   += $(ERF_MATPROP_DIR)
 INCLUDE_LOCATIONS += $(ERF_MATPROP_DIR)
 
 # If using Noah-MP model, then compile relevant source and headers
+USE_NOAHMP_MPMD ?= FALSE
+ifeq ($(USE_NOAHMP_MPMD),TRUE)
+    USE_NOAHMP = TRUE
+    USE_MPMD = TRUE
+    DEFINES += -DERF_USE_NOAHMP_MPMD
+endif
+
 ifeq ($(USE_NOAHMP), TRUE)
   ifneq ($(USE_NETCDF), TRUE)
     $(error USE_NETCDF must be true for using NOAH-MP interface)
