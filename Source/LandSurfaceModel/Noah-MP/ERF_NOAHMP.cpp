@@ -5,6 +5,7 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_MPMD.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_Constants.H>
@@ -325,8 +326,31 @@ NOAHMP::Advance_With_State (const int& lev,
 
         // Call the noahmpio driver code. This runs the land model forcing for
         // each object in noahmpio_vect that represent a block in the domain.
+#ifndef ERF_USE_NOAHMP_MPMD
         noahmpio->itimestep = nstep+1;
         noahmpio->DriverMain();
+#else
+        if (amrex::MPMD::AppNum() == 0) {
+            int global_box_id = mfi.index();
+            int send_count = bx.numPts() * NoahmpInputComp::NumComps;
+            int recv_count = bx.numPts() * NoahmpOutputComp::NumComps;
+            amrex::Real* send_ptr = noahmp_input_tmp[idb]->dataPtr();
+            amrex::Real* recv_ptr = noahmp_output_tmp[idb]->dataPtr();
+
+            int num_app0_ranks = amrex::MPMD::NumProcs(0);
+            int num_app1_ranks = amrex::MPMD::NumProcs(1);
+            int dest_app1_rank = num_app0_ranks + (global_box_id % num_app1_ranks);
+
+            // Send atmospheric forcing to App 1
+            MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                     dest_app1_rank, global_box_id, amrex::MPMD::MyGlobalComm());
+
+            // Block and wait to receive calculated fluxes back from App 1
+            MPI_Status status;
+            MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
+                     MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
+        }
+#endif
 
         // Copy results from NoahmpIO back to temporary arrays
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
