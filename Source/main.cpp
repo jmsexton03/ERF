@@ -165,19 +165,21 @@ return code;
     if (app_id == 0) {
         {
             // constructor - reads in parameters from inputs file
-            //             - sizes multilevel arrays and data structures
             ERF erf;
-
-            // initialize AMR data
             erf.InitData();
-
-            // advance solution to final time
             erf.Evolve();
 
-            // wallclock time
-            Real end_total = Real(amrex::second()) - strt_total;
+#ifdef ERF_USE_NOAHMP_MPMD
+            // ERF is done. Signal NoahMP (App 1) to break its loop.
+            int keep_running = 0;
+            if (amrex::ParallelDescriptor::MyProc() == 0) {
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::MPMD::MyGlobalComm());
+            } else {
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::MPMD::MyGlobalComm());
+            }
+#endif
 
-            // print wallclock time
+            Real end_total = Real(amrex::second()) - strt_total;
             ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
             if (erf.Verbose()) {
                 amrex::Print() << "\nTotal Time: " << end_total << '\n';

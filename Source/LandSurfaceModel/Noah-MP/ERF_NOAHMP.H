@@ -246,9 +246,14 @@ private:
     // Vector to store NoahmpIO objects at a level
     NoahmpIO_vector noahmpio_vect;
 
-    // Pinned memory buffers for host/device coupling to Noah-MP
-    amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_input_tmp;
-    amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_output_tmp;
+    // 2D Pinned MultiFabs to hold forcing/flux data (Used by ALL builds)
+    std::unique_ptr<amrex::MultiFab> mf_noah_input;
+    std::unique_ptr<amrex::MultiFab> mf_noah_output;
+
+#ifdef ERF_USE_NOAHMP_MPMD
+    // The AMReX object that handles all async MPI routing (MPMD ONLY)
+    std::unique_ptr<amrex::MPMD::Copier> mpmd_copier;
+#endif
 
 public:
     // Plot frequency

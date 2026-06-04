@@ -110,30 +110,35 @@ NOAHMP::Init (const int& lev,
     // Set noahmpio_vect to the size of local blocks (boxes)
     noahmpio_vect.resize(cons_in.local_size(), lev);
 
-    // Allocate pinned buffer space for all the boxes
-    noahmp_input_tmp.resize(cons_in.local_size());
-    noahmp_output_tmp.resize(cons_in.local_size());
-
     int klo = domain.smallEnd(2);
 
-    // Iterate over multifab and noahmpio object together. Multifabs is
-    // used to extract size of blocks and set bounds for noahmpio objects.
+    // Create a 2D slab BoxArray from the 3D domain at the surface (Used by ALL builds)
+    amrex::BoxArray ba2d = cons_in.boxArray();
+    for (int i = 0; i < ba2d.size(); ++i) {
+        amrex::Box bx2d = ba2d[i];
+        bx2d.makeSlab(2, klo);
+        ba2d.set(i, bx2d);
+    }
+
+    amrex::DistributionMapping dm2d = cons_in.DistributionMap();
+
+    // Use Pinned Memory for fast Host <-> Device copies
+    amrex::MFInfo info;
+    info.SetArena(amrex::The_Pinned_Arena());
+
+    mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0, info);
+    mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0, info);
+
+#ifdef ERF_USE_NOAHMP_MPMD
+    // Only initialize the Copier if doing an MPMD run
+    mpmd_copier = std::make_unique<amrex::MPMD::Copier>(ba2d, dm2d);
+#endif
+
+    // Iterate over multifab and noahmpio object together
     int idb = 0;
     for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
-
-        // Get bounds for the tile
         Box bx = mfi.tilebox();
-
-        // Check if tile is at the lower boundary in lower z direction
         if (bx.smallEnd(2) != klo) { continue; }
-
-        // Make a slab
-        auto bx2d = bx;
-	bx2d.makeSlab(2,klo);
-
-        // Allocate pinned buffers for each box
-        noahmp_input_tmp[idb]  = std::make_unique<FArrayBox>(bx2d, NoahmpInputComp::NumComps , The_Pinned_Arena());
-        noahmp_output_tmp[idb] = std::make_unique<FArrayBox>(bx2d, NoahmpOutputComp::NumComps, The_Pinned_Arena());
 
         // Get reference to the noahmpio object
         NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
@@ -153,20 +158,12 @@ NOAHMP::Init (const int& lev,
         // Store parallel communicator for noahmp
         noahmpio->comm = MPI_Comm_c2f(ParallelDescriptor::Communicator());
 
-        // Read namelist.erf file. This file contains
-        // noahmpio specific parameters and is read by
-        // the Fortran side of the implementation.
+        // Read namelist.erf file
         noahmpio->ReadNamelist();
 
-        // Read the headers from the NetCDF land file. This is also
-        // implemented on the Fortran side of things currently.
+        // Read the headers from the NetCDF land file
         noahmpio->ReadLandHeader();
 
-        // Extract tile bounds and set them to their corresponding
-        // noahmpio variables. At present we will set all the variables
-        // corresponding to domain, memory, and tile to the same bounds.
-        // This will be changed later if we want to do special memory
-        // management for expensive use cases.
         noahmpio->xstart = bx.smallEnd(0);
         noahmpio->xend   = bx.bigEnd(0);
         noahmpio->ystart = bx.smallEnd(1);
@@ -196,26 +193,22 @@ NOAHMP::Init (const int& lev,
         noahmpio->kms = 1;
         noahmpio->kme = 2;
 
-        // This procedure allocates memory in Fortran for IO variables
-        // using bounds that are set above and read from namelist.erf
-        // and headers from the NetCDF land file
+        // Allocate memory in Fortran for IO variables
         noahmpio->VarInitDefault();
 
-        // This reads NoahmpTable.TBL file which is another input file
-        // we need to set some IO variables.
+        // Read NoahmpTable.TBL
         noahmpio->ReadTable();
 
-        // Read and initialize data from the NetCDF land file.
+        // Read and initialize data from the NetCDF land file
         noahmpio->ReadLandMain();
 
-        // Compute additional initial values that were not supplied
-        // by the NetCDF land file.
+        // Compute additional initial values
         noahmpio->InitMain();
 
-        // Write initial plotfile for land with the tag 0
+        // Write initial plotfile
         Print() << "Noah-MP writing lnd.nc file at lev: " << lev << std::endl;
         noahmpio->WriteLand(0);
-  }
+    }
 
   Print() << "Noah-MP initialization completed" << std::endl;
 
@@ -291,9 +284,9 @@ NOAHMP::Advance_With_State (const int& lev,
         Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
         Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
 
-        // Use The_Pinned_Arena() for host-accessible memory that can be used with GPU
-        Array4<Real> noah_input_arr  =  noahmp_input_tmp[idb]->array();
-        Array4<Real> noah_output_arr =  noahmp_output_tmp[idb]->array();
+        // Use Pinned MultiFabs
+        Array4<Real> noah_input_arr  = mf_noah_input->array(mfi);
+        Array4<Real> noah_output_arr = mf_noah_output->array(mfi);
 
         // Copy forcing data from ERF to Noahmp.
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -332,24 +325,23 @@ NOAHMP::Advance_With_State (const int& lev,
         noahmpio->DriverMain();
 #else
         if (amrex::MPMD::AppNum() == 0) {
-            int global_box_id = mfi.index();
-            int send_count = bx.numPts() * NoahmpInputComp::NumComps;
-            int recv_count = bx.numPts() * NoahmpOutputComp::NumComps;
-            amrex::Real* send_ptr = noahmp_input_tmp[idb]->dataPtr();
-            amrex::Real* recv_ptr = noahmp_output_tmp[idb]->dataPtr();
-
-            int num_app0_ranks = amrex::MPMD::NumProcs(0);
-            int num_app1_ranks = amrex::MPMD::NumProcs(1);
-            int dest_app1_rank = num_app0_ranks + (global_box_id % num_app1_ranks);
+            // Signal App 1 to keep running for this step
+            int keep_running = 1;
+            if (amrex::ParallelDescriptor::MyProc() == 0) {
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::MPMD::MyGlobalComm());
+            } else {
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::MPMD::MyGlobalComm());
+            }
 
             // Send atmospheric forcing to App 1
-            MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                     dest_app1_rank, global_box_id, amrex::MPMD::MyGlobalComm());
+            mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
 
-            // Block and wait to receive calculated fluxes back from App 1
-            MPI_Status status;
-            MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                     MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
+            // Receive calculated fluxes back from App 1
+            mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
+        } else {
+            // If we are App 1, we just run the local physics driver
+            noahmpio->itimestep = nstep+1;
+            noahmpio->DriverMain();
         }
 #endif
 
@@ -405,18 +397,6 @@ NOAHMP::Advance_With_State (const int& lev,
 #ifdef ERF_USE_NOAHMP_MPMD
 void NOAHMP::Run_MPMD_Advance()
 {
-    // --- Rank Distribution Validation ---
-    int num_atmos_ranks = amrex::MPMD::NumProcs(0);
-    int num_land_ranks  = amrex::MPMD::NumProcs(1);
-
-    if (num_atmos_ranks > num_land_ranks) {
-        amrex::Warning("WARNING: Noah-MP (App 1) has fewer MPI ranks than ERF (App 0). "
-                       "Because Noah-MP is CPU-bound and ERF is GPU-bound, this will "
-                       "likely result in a severe performance bottleneck. Please allocate "
-                       "more ranks to App 1.");
-    }
-
-    // --- Initialization ---
     amrex::ParmParse pp_amr("amr");
     amrex::Vector<int> n_cell(3);
     pp_amr.getarr("n_cell", n_cell);
@@ -427,59 +407,49 @@ void NOAHMP::Run_MPMD_Advance()
     pp_geom.getarr("prob_hi", prob_hi);
 
     amrex::RealBox lb(prob_lo, prob_hi);
-    amrex::Geometry geom(lb);
 
-    amrex::Box box(amrex::IntVect(0,0,0), amrex::IntVect(n_cell[0]-1, n_cell[1]-1, 0));
-    amrex::BoxArray ba(box);
+    // Geometry needs the 2D Box first
+    amrex::Box domain_bx(amrex::IntVect(0,0,0), amrex::IntVect(n_cell[0]-1, n_cell[1]-1, 0));
+    amrex::Geometry geom(domain_bx, &lb, amrex::CoordSys::cartesian, nullptr);
+    amrex::BoxArray ba(domain_bx);
 
-    // Force Round-Robin mapping to sync with App 0 sending logic
     amrex::DistributionMapping dm;
     dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
 
-    amrex::MultiFab cons_dummy(ba, dm, 1);
-    amrex::MultiFab xvel_dummy(ba, dm, 1);
-    amrex::MultiFab yvel_dummy(ba, dm, 1);
+    amrex::MultiFab cons_dummy(ba, dm, 1, 0);
+    amrex::MultiFab xvel_dummy(ba, dm, 1, 0);
+    amrex::MultiFab yvel_dummy(ba, dm, 1, 0);
 
     amrex::Real dt = 0.0;
     amrex::ParmParse pp_erf("erf");
     pp_erf.query("dt", dt);
 
     NOAHMP lsm;
-    lsm.Init(0, cons_dummy, geom, dt);
+    lsm.Init(0, cons_dummy, geom, dt); // this creates mf_noah_input, mf_noah_output, and mpmd_copier
 
-    // --- Driver Loop ---
-    int max_steps = 0;
-    if (!pp_erf.query("max_steps", max_steps)) {
-        pp_erf.query("max_step", max_steps);
-    }
+    int step = 0;
+    int keep_running = 1;
+    int root_app0 = 0;
 
-    std::vector<int> app0_dest_ranks(cons_dummy.local_size());
-
-    for (int step = 0; step < max_steps; ++step) {
-        int idb = 0;
-        for (amrex::MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
-            int global_box_id = mfi.index();
-            int recv_count = mfi.tilebox().numPts() * NoahmpInputComp::NumComps;
-            amrex::Real* recv_ptr = lsm.noahmp_input_tmp[idb]->dataPtr();
-
-            MPI_Status status;
-            MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                     MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
-
-            app0_dest_ranks[idb] = status.MPI_SOURCE;
+    // The Adaptive MPMD Loop
+    while (true) {
+        // Wait for App 0 signal (0 = stop, 1 = continue)
+        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, amrex::MPMD::MyGlobalComm());
+        if (!keep_running) {
+            break;
         }
 
+        // 1. Receive forcing data from ERF App 0
+        lsm.mpmd_copier->recv(*(lsm.mf_noah_input), 0, NoahmpInputComp::NumComps);
+
+        // 2. Run Noah-MP Physics
         lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
 
-        idb = 0;
-        for (amrex::MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
-            int global_box_id = mfi.index();
-            int send_count = mfi.tilebox().numPts() * NoahmpOutputComp::NumComps;
-            amrex::Real* send_ptr = lsm.noahmp_output_tmp[idb]->dataPtr();
+        // 3. Send calculated fluxes back to ERF App 0
+        lsm.mpmd_copier->send(*(lsm.mf_noah_output), 0, NoahmpOutputComp::NumComps);
 
-            MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                     app0_dest_ranks[idb], global_box_id, amrex::MPMD::MyGlobalComm());
-        }
+        step++;
     }
+    amrex::Print() << "Noah-MP MPMD driver completed " << step << " steps and exited cleanly." << std::endl;
 }
 #endif
