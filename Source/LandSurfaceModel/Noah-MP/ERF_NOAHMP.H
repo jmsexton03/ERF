@@ -198,6 +198,8 @@ public:
     }
 
 #ifdef ERF_USE_NOAHMP_MPMD
+    static constexpr int MPMDControlTag = 4242;
+    static void SetMPMDRootRanks (int app0_root_global, int app1_root_global);
     static void Run_MPMD_Advance();
 #endif
 

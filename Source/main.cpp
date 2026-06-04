@@ -162,6 +162,25 @@ return code;
 
     int app_id = amrex::MPMD::AppNum();
 
+#ifdef ERF_USE_NOAHMP_MPMD
+    int local_rank = amrex::ParallelDescriptor::MyProc();
+    int global_rank = -1;
+    MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
+
+    int my_app0_root = (app_id == 0 && local_rank == 0) ? global_rank : -1;
+    int my_app1_root = (app_id == 1 && local_rank == 0) ? global_rank : -1;
+    int app0_root_global = -1;
+    int app1_root_global = -1;
+
+    MPI_Allreduce(&my_app0_root, &app0_root_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_app1_root, &app1_root_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(app0_root_global >= 0 && app1_root_global >= 0,
+                                     "Failed to discover global root ranks for App 0 and App 1");
+
+    NOAHMP::SetMPMDRootRanks(app0_root_global, app1_root_global);
+#endif
+
     if (app_id == 0) {
         {
             // constructor - reads in parameters from inputs file
@@ -172,10 +191,11 @@ return code;
 #ifdef ERF_USE_NOAHMP_MPMD
             // ERF is done. Signal NoahMP (App 1) to break its loop.
             int keep_running = 0;
-            if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            if (local_rank == 0) {
+                MPI_Send(&keep_running, 1, MPI_INT, app1_root_global,
+                         NOAHMP::MPMDControlTag, MPI_COMM_WORLD);
             } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, MPI_COMM_WORLD);
+                amrex::ignore_unused(keep_running);
             }
 #endif
 

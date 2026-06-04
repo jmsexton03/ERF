@@ -12,6 +12,20 @@
 
 using namespace amrex;
 
+#ifdef ERF_USE_NOAHMP_MPMD
+namespace {
+int s_app0_root_global = -1;
+int s_app1_root_global = -1;
+}
+
+void
+NOAHMP::SetMPMDRootRanks (int app0_root_global, int app1_root_global)
+{
+    s_app0_root_global = app0_root_global;
+    s_app1_root_global = app1_root_global;
+}
+#endif
+
 /* Initialize lsm data structures */
 void
 NOAHMP::Init (const int& lev,
@@ -254,8 +268,14 @@ NOAHMP::Init (const int& lev,
         noahmpio->InitMain();
 
         // Write initial plotfile
+#ifdef ERF_USE_NOAHMP_MPMD
+        if (amrex::MPMD::AppNum() == 0) {
+#endif
         Print() << "Noah-MP writing lnd.nc file at lev: " << lev << std::endl;
         noahmpio->WriteLand(0);
+#ifdef ERF_USE_NOAHMP_MPMD
+        }
+#endif
         amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
                           << " rank " << amrex::ParallelDescriptor::MyProc()
                           << "] NOAHMP::Init block " << idb << " completed" << std::endl;
@@ -283,7 +303,6 @@ NOAHMP::Advance_With_State (const int& lev,
                             const Real& dt,
                             const int& nstep)
 {
-
     Box domain = m_geom.Domain();
 
     Print () << "Noah-MP driver started at time step: " << nstep+1 << std::endl;
@@ -297,18 +316,13 @@ NOAHMP::Advance_With_State (const int& lev,
                       << std::endl;
 
     bool is_moist = (cons_in.nComp() > RhoQ1_comp);
-
     int klo = domain.smallEnd(2);
 
-    // Loop over blocks to copy forcing data to Noahmp, drive the land model,
-    // and copy data back to ERF Multifabs.
     int idb = 0;
     for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
-
         Box bx  = mfi.tilebox();
         Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
 
-        // Check if tile is at the lower boundary in lower z direction
         if (bx.smallEnd(2) != klo) { continue; }
 
         bx.makeSlab(2,klo);
@@ -323,20 +337,14 @@ NOAHMP::Advance_With_State (const int& lev,
                           << " hi=(" << gbx.bigEnd(0) << "," << gbx.bigEnd(1) << "," << gbx.bigEnd(2) << ")"
                           << std::endl;
 
-        // For limiting when populating ghost cells
-        int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
-        int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
-
         const Array4<const Real>& U_PHY  = xvel_in.const_array(mfi);
         const Array4<const Real>& V_PHY  = yvel_in.const_array(mfi);
         const Array4<const Real>& CONS   = cons_in.const_array(mfi);
 
-        // Into NOAH-MP
         const Array4<const Real>& SWDOWN = lsm_fab_data[LsmData_NOAHMP::sw_flux_dn]->const_array(mfi);
         const Array4<const Real>& GLW    = lsm_fab_data[LsmData_NOAHMP::lw_flux_dn]->const_array(mfi);
         const Array4<const Real>& COSZEN = lsm_fab_data[LsmData_NOAHMP::cos_zenith_angle]->const_array(mfi);
 
-        // Out of NOAH-MP
         Array4<Real> TSK           = lsm_fab_data[LsmData_NOAHMP::t_sfc]->array(mfi);
         Array4<Real> EMISS         = lsm_fab_data[LsmData_NOAHMP::sfc_emis]->array(mfi);
         Array4<Real> ALBSFCDIR_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_vis]->array(mfi);
@@ -344,17 +352,14 @@ NOAHMP::Advance_With_State (const int& lev,
         Array4<Real> ALBSFCDIF_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_vis]->array(mfi);
         Array4<Real> ALBSFCDIF_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_nir]->array(mfi);
 
-        // NOTE: Need to expose stresses and get stresses from NOAHMP
         Array4<Real> q_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::q_flux]->array(mfi);
         Array4<Real> t_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
         Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
         Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
 
-        // Use Pinned MultiFabs
         Array4<Real> noah_input_arr  = mf_noah_input->array(mfi);
         Array4<Real> noah_output_arr = mf_noah_output->array(mfi);
 
-        // Copy forcing data from ERF to Noahmp.
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
             Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
@@ -368,7 +373,6 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
         });
 
-        // Synchronize to ensure GPU kernel is complete before host access
         Gpu::streamSynchronize();
         amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
                           << " rank " << amrex::ParallelDescriptor::MyProc()
@@ -378,7 +382,6 @@ NOAHMP::Advance_With_State (const int& lev,
 #ifndef ERF_USE_NOAHMP_MPMD
         NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
 
-        // Now on the host, copy data to NoahmpIO arrays.
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
             noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
@@ -411,53 +414,103 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
         });
-#else
-        if (amrex::MPMD::AppNum() == 0) {
-            // Signal App 1 to keep running for this step.
-            int keep_running = 1;
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << amrex::ParallelDescriptor::MyProc()
-                              << "] NOAHMP::Advance_With_State block " << idb
-                              << " entering MPMD exchange" << std::endl;
-            if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
-            } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, MPI_COMM_WORLD);
-            }
 
-            // Exchange Noah-MP forcing/fluxes through the MPMD copier. App 1
-            // runs the land model and fills mf_noah_output on its side.
-            mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << amrex::ParallelDescriptor::MyProc()
-                              << "] NOAHMP::Advance_With_State block " << idb
-                              << " completed MPMD send, waiting for recv" << std::endl;
-            mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << amrex::ParallelDescriptor::MyProc()
-                              << "] NOAHMP::Advance_With_State block " << idb
-                              << " completed MPMD recv" << std::endl;
-        }
-#endif
-
-        // Copy forcing data from Noahmp to ERF
+        int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
+        int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
-            // Limit indices to the valid box. FillBoundary will pick these up below.
             int ii = std::min(std::max(i,i_lo),i_hi);
             int jj = std::min(std::max(j,j_lo),j_hi);
 
-            // SurfaceLayer fluxes at CC
             t_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::hfx)/(CONS(ii,jj,k,Rho_comp)*Cp_d);
             q_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::lh)/(CONS(ii,jj,k,Rho_comp)*L_v);
+            tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
+            tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
 
-            // NOTE: The following fluxes are nodal in xz/yz.
-            //       The 2D MFs have 1 ghost cell so we can average these
-            //       when using them in the surface layer class.
-            tau13_arr(i,j,k)  = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
-            tau23_arr(i,j,k)  = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
+            TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
+            ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
+            ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
+            ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
+            ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
+        });
 
-            // RRTMGP variables
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State block " << idb
+                          << " copied NoahMP output back to ERF arrays" << std::endl;
+#else
+        amrex::ignore_unused(dt, TSK, EMISS, ALBSFCDIR_VIS, ALBSFCDIR_NIR,
+                             ALBSFCDIF_VIS, ALBSFCDIF_NIR, q_flux_arr,
+                             t_flux_arr, tau13_arr, tau23_arr, gbx,
+                             noah_output_arr);
+#endif
+    }
+
+#ifdef ERF_USE_NOAHMP_MPMD
+    if (amrex::MPMD::AppNum() == 0) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(s_app0_root_global >= 0 && s_app1_root_global >= 0,
+                                         "NOAHMP MPMD roots were not initialized before Advance_With_State");
+
+        int keep_running = 1;
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State entering MPMD exchange for step "
+                          << nstep+1 << std::endl;
+
+        if (amrex::ParallelDescriptor::MyProc() == 0) {
+            MPI_Send(&keep_running, 1, MPI_INT, s_app1_root_global,
+                     NOAHMP::MPMDControlTag, MPI_COMM_WORLD);
+        }
+
+        mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State completed MPMD send, waiting for recv"
+                          << std::endl;
+        mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State completed MPMD recv"
+                          << std::endl;
+    }
+
+    idb = 0;
+    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
+        Box bx  = mfi.tilebox();
+        Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
+
+        if (bx.smallEnd(2) != klo) { continue; }
+
+        bx.makeSlab(2,klo);
+        gbx.makeSlab(2,klo);
+
+        int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
+        int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
+
+        const Array4<const Real>& CONS   = cons_in.const_array(mfi);
+        Array4<Real> TSK                 = lsm_fab_data[LsmData_NOAHMP::t_sfc]->array(mfi);
+        Array4<Real> EMISS               = lsm_fab_data[LsmData_NOAHMP::sfc_emis]->array(mfi);
+        Array4<Real> ALBSFCDIR_VIS       = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_vis]->array(mfi);
+        Array4<Real> ALBSFCDIR_NIR       = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_nir]->array(mfi);
+        Array4<Real> ALBSFCDIF_VIS       = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_vis]->array(mfi);
+        Array4<Real> ALBSFCDIF_NIR       = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_nir]->array(mfi);
+        Array4<Real> q_flux_arr          = lsm_fab_flux[LsmFlux_NOAHMP::q_flux]->array(mfi);
+        Array4<Real> t_flux_arr          = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
+        Array4<Real> tau13_arr           = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
+        Array4<Real> tau23_arr           = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
+        Array4<const Real> noah_output_arr = mf_noah_output->const_array(mfi);
+
+        ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            int ii = std::min(std::max(i,i_lo),i_hi);
+            int jj = std::min(std::max(j,j_lo),j_hi);
+
+            t_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::hfx)/(CONS(ii,jj,k,Rho_comp)*Cp_d);
+            q_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::lh)/(CONS(ii,jj,k,Rho_comp)*L_v);
+            tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
+            tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
+
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
@@ -471,8 +524,8 @@ NOAHMP::Advance_With_State (const int& lev,
                           << "] NOAHMP::Advance_With_State block " << idb
                           << " copied NoahMP output back to ERF arrays" << std::endl;
     }
+#endif
 
-    // Fill the ghost cells
     for (auto ivar = 0; ivar < LsmFlux_NOAHMP::NumVars; ++ivar) {
         lsm_fab_flux[ivar]->FillBoundary(m_geom.periodicity());
     }
@@ -614,7 +667,9 @@ void NOAHMP::Run_MPMD_Advance()
 
     int step = 0;
     int keep_running = 1;
-    int root_app0 = 0;
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(s_app0_root_global >= 0 && s_app1_root_global >= 0,
+                                     "NOAHMP MPMD roots were not initialized before Run_MPMD_Advance");
 
     // The Adaptive MPMD Loop
     while (true) {
@@ -623,7 +678,11 @@ void NOAHMP::Run_MPMD_Advance()
                           << " rank " << amrex::ParallelDescriptor::MyProc()
                           << "] NOAHMP::Run_MPMD_Advance waiting for keep_running at step "
                           << step+1 << std::endl;
-        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, MPI_COMM_WORLD);
+        if (amrex::ParallelDescriptor::MyProc() == 0) {
+            MPI_Recv(&keep_running, 1, MPI_INT, s_app0_root_global,
+                     NOAHMP::MPMDControlTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+        amrex::ParallelDescriptor::Bcast(&keep_running, 1, 0);
         if (!keep_running) {
             amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
                               << " rank " << amrex::ParallelDescriptor::MyProc()
