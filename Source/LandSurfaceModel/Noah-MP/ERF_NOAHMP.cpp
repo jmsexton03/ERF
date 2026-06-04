@@ -128,7 +128,8 @@ NOAHMP::Init (const int& lev,
         if (bx.smallEnd(2) != klo) { continue; }
 
         // Make a slab
-        bx.makeSlab(2,klo);
+        auto bx2d = bx;
+	bx2d.makeSlab(2,klo);
 
         // Allocate pinned buffers for each box
         noahmp_input_tmp[idb]  = std::make_unique<FArrayBox>(bx2d, NoahmpInputComp::NumComps , The_Pinned_Arena());
@@ -402,7 +403,7 @@ NOAHMP::Advance_With_State (const int& lev,
 };
 
 #ifdef ERF_USE_NOAHMP_MPMD
-void NOAHMP::Run_MPMD_Device()
+void NOAHMP::Run_MPMD_Advance()
 {
     // --- Rank Distribution Validation ---
     int num_atmos_ranks = amrex::MPMD::NumProcs(0);
