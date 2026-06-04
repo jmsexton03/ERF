@@ -55,6 +55,7 @@ read_times_from_wrfbdy (const std::string& nc_bdy_file,
         ntimes = array_ts[0].get_vshape()[0];
 
         auto dateStrLen = array_ts[0].get_vshape()[1];
+        Print() << "  wrfbdy Times shape = (" << ntimes << ", " << dateStrLen << ")" << std::endl;
         char timeStamps[ntimes][dateStrLen];
 
         // Fill up the characters read
@@ -96,6 +97,14 @@ read_times_from_wrfbdy (const std::string& nc_bdy_file,
 
     // Make sure all processors know timeInterval
     ParallelDescriptor::Bcast(&timeInterval,1,ioproc);
+
+    if (ParallelDescriptor::IOProcessor()) {
+        Print() << "  wrfbdy start_bdy_time = " << start_bdy_time
+                << ", final_bdy_time = " << final_bdy_time
+                << ", interval = " << timeInterval
+                << ", ntimes = " << ntimes
+                << std::endl;
+    }
 
     // Return the number of seconds between the boundary plane data
     return timeInterval;
@@ -162,14 +171,20 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
             Print() << "Note: Requested boundary width is " << real_width
                 << " < " << width << " (bdy_width size in file)" << std::endl;
         }
+
+        Print() << "  wrfbdy slice " << itime
+                << " width = " << width
+                << ", requested width = " << real_width
+                << ", nvars = " << nc_var_names.size()
+                << ", domain lo=(" << lo[0] << "," << lo[1] << "," << lo[2] << ") hi=("
+                << hi[0] << "," << hi[1] << "," << hi[2] << ")"
+                << std::endl;
     }
     ParallelDescriptor::Bcast(&width,1,ioproc);
 
     // This loops over every variable on every face, so nvars should be 4 * number of "ivartype" below
     for (int iv = 0; iv < nvars; iv++)
     {
-        // Print() << "Building FAB for the NetCDF variable : " << nc_var_names[iv] << std::endl;
-
         int bdyVarType;
 
         std::string first1 = nc_var_names[iv].substr(0,1);
@@ -207,6 +222,23 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
             bdyType = WRFBdyTypes::y_hi;
         }
 
+        const auto& shape = tslice[iv].get_vshape();
+        std::ostringstream shape_ss;
+        for (std::size_t id = 0; id < shape.size(); ++id) {
+            shape_ss << shape[id];
+            if (id + 1 < shape.size()) {
+                shape_ss << ",";
+            }
+        }
+        if (ParallelDescriptor::IOProcessor()) {
+            Print() << "  wrfbdy iv=" << iv
+                    << " name=" << nc_var_names[iv]
+                    << " shape=(" << shape_ss.str() << ")"
+                    << " bdyVarType=" << bdyVarType
+                    << " bdyType=" << bdyType
+                    << std::endl;
+        }
+
         Arena* Arena_Used = The_Arena();
 #ifdef AMREX_USE_GPU
         Arena_Used = The_Pinned_Arena();
@@ -242,6 +274,17 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
                 bdy_data_xlo[itime].push_back(FArrayBox(xlo_line, 1, Arena_Used));          // MU/PC
             }
 
+            if (ParallelDescriptor::IOProcessor()) {
+                Print() << "    target xlo box lo=("
+                        << bdy_data_xlo[itime][bdyVarType].box().smallEnd(0) << ","
+                        << bdy_data_xlo[itime][bdyVarType].box().smallEnd(1) << ","
+                        << bdy_data_xlo[itime][bdyVarType].box().smallEnd(2) << ") hi=("
+                        << bdy_data_xlo[itime][bdyVarType].box().bigEnd(0) << ","
+                        << bdy_data_xlo[itime][bdyVarType].box().bigEnd(1) << ","
+                        << bdy_data_xlo[itime][bdyVarType].box().bigEnd(2) << ")"
+                        << std::endl;
+            }
+
         } else if (bdyType == WRFBdyTypes::x_hi) {
 
             // *******************************************************************************
@@ -270,6 +313,17 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
                 bdy_data_xhi[itime].push_back(FArrayBox(xhi_plane_z_stag, 1, Arena_Used));  // PH
             } else if (bdyVarType == WRFBdyVars::MU || bdyVarType == WRFBdyVars::PC) {
                 bdy_data_xhi[itime].push_back(FArrayBox(xhi_line, 1, Arena_Used));          // MU/PC
+            }
+
+            if (ParallelDescriptor::IOProcessor()) {
+                Print() << "    target xhi box lo=("
+                        << bdy_data_xhi[itime][bdyVarType].box().smallEnd(0) << ","
+                        << bdy_data_xhi[itime][bdyVarType].box().smallEnd(1) << ","
+                        << bdy_data_xhi[itime][bdyVarType].box().smallEnd(2) << ") hi=("
+                        << bdy_data_xhi[itime][bdyVarType].box().bigEnd(0) << ","
+                        << bdy_data_xhi[itime][bdyVarType].box().bigEnd(1) << ","
+                        << bdy_data_xhi[itime][bdyVarType].box().bigEnd(2) << ")"
+                        << std::endl;
             }
 
         } else if (bdyType == WRFBdyTypes::y_lo) {
@@ -302,6 +356,17 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
                 bdy_data_ylo[itime].push_back(FArrayBox(ylo_line, 1, Arena_Used));          // MU/PC
             }
 
+            if (ParallelDescriptor::IOProcessor()) {
+                Print() << "    target ylo box lo=("
+                        << bdy_data_ylo[itime][bdyVarType].box().smallEnd(0) << ","
+                        << bdy_data_ylo[itime][bdyVarType].box().smallEnd(1) << ","
+                        << bdy_data_ylo[itime][bdyVarType].box().smallEnd(2) << ") hi=("
+                        << bdy_data_ylo[itime][bdyVarType].box().bigEnd(0) << ","
+                        << bdy_data_ylo[itime][bdyVarType].box().bigEnd(1) << ","
+                        << bdy_data_ylo[itime][bdyVarType].box().bigEnd(2) << ")"
+                        << std::endl;
+            }
+
         } else if (bdyType == WRFBdyTypes::y_hi) {
 
             // *******************************************************************************
@@ -330,6 +395,17 @@ read_from_wrfbdy (const int itime, const std::string& nc_bdy_file, const Box& do
                 bdy_data_yhi[itime].push_back(FArrayBox(yhi_plane_z_stag, 1, Arena_Used));  // PH
             } else if (bdyVarType == WRFBdyVars::MU || bdyVarType == WRFBdyVars::PC) {
                 bdy_data_yhi[itime].push_back(FArrayBox(yhi_line, 1, Arena_Used));          // MU/PC
+            }
+
+            if (ParallelDescriptor::IOProcessor()) {
+                Print() << "    target yhi box lo=("
+                        << bdy_data_yhi[itime][bdyVarType].box().smallEnd(0) << ","
+                        << bdy_data_yhi[itime][bdyVarType].box().smallEnd(1) << ","
+                        << bdy_data_yhi[itime][bdyVarType].box().smallEnd(2) << ") hi=("
+                        << bdy_data_yhi[itime][bdyVarType].box().bigEnd(0) << ","
+                        << bdy_data_yhi[itime][bdyVarType].box().bigEnd(1) << ","
+                        << bdy_data_yhi[itime][bdyVarType].box().bigEnd(2) << ")"
+                        << std::endl;
             }
         }
 

@@ -154,7 +154,7 @@ Problem::init_custom_pert (
     }
     else {
         Print() << "Problem name" << " \"" <<  my_prob_name_ci << "\" "
-                << "does not add any state perturbations. \n";
+                << "does not add any state perturbations; using the no-op perturbation path. \n";
     }
 
     amrex::Gpu::streamSynchronize();
@@ -249,7 +249,7 @@ Problem::init_custom_pert_vels (
     }
     else {
         Print() << "Problem name" << " \"" <<  my_prob_name_ci << "\" "
-                << "does not add any velocity perturbations. \n";
+                << "does not add any velocity perturbations; using the no-op perturbation path. \n";
     }
 
     amrex::Gpu::streamSynchronize();

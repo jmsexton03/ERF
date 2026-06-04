@@ -1262,6 +1262,23 @@ compute_terrain_top_and_bottom (const MultiFab& mf_PH,
             Fab2dBox_lo = makeSlab(vbx,2,klo);
         }
 
+        Print() << "  [rank " << ParallelDescriptor::MyProc() << "] terrain reduction tile validbox lo=("
+                << vbx.smallEnd(0) << "," << vbx.smallEnd(1) << "," << vbx.smallEnd(2) << ") hi=("
+                << vbx.bigEnd(0)   << "," << vbx.bigEnd(1)   << "," << vbx.bigEnd(2)   << ")"
+                << " nodal lo=("
+                << nodal_box.smallEnd(0) << "," << nodal_box.smallEnd(1) << "," << nodal_box.smallEnd(2) << ") hi=("
+                << nodal_box.bigEnd(0)   << "," << nodal_box.bigEnd(1)   << "," << nodal_box.bigEnd(2)   << ")"
+                << " klo=" << klo << " khi=" << khi
+                << " top_box_ok=" << Fab2dBox_hi.ok()
+                << " top_m1_box_ok=" << Fab2dBox_hi_m1.ok()
+                << " bottom_box_ok=" << Fab2dBox_lo.ok()
+                << std::endl;
+
+        if (!Fab2dBox_hi.ok() || !Fab2dBox_hi_m1.ok() || !Fab2dBox_lo.ok()) {
+            Print() << "  [rank " << ParallelDescriptor::MyProc() << "] terrain reduction skipped on this tile because one or more slabs were empty"
+                    << std::endl;
+        }
+
         auto const& phb = mf_PHB.const_array(mfi);
         auto const& ph  = mf_PH.const_array(mfi);
 
@@ -1423,7 +1440,12 @@ init_terrain_from_wrfinput (int /*lev*/,
         });
 
         // Sanity check
-        Print() << "Verifying grid integrity" << std::endl;
+        Print() << "  [rank " << ParallelDescriptor::MyProc() << "] Verifying grid integrity"
+                << " for validbox lo=("
+                << vbx.smallEnd(0) << "," << vbx.smallEnd(1) << "," << vbx.smallEnd(2) << ") hi=("
+                << vbx.bigEnd(0)   << "," << vbx.bigEnd(1)   << "," << vbx.bigEnd(2)   << ")"
+                << " klo=" << klo << " khi=" << khi
+                << std::endl;
         const Box& vbox = mfi.validbox();
         if (vbox.smallEnd(2) == klo) {
             Box z_surf_faces = makeSlab(vbox, 2, klo);

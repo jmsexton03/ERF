@@ -121,10 +121,13 @@ NOAHMP::Init (const int& lev,
 
     amrex::DistributionMapping dm2d = cons_in.DistributionMap();
 
-    // Allocate MultiFabs (AMReX will automatically use Device Memory on GPUs
-    // and Host Memory on CPUs). The MPMD Copier natively supports GPU-aware MPI.
-    mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0);
-    mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0);
+    // Keep these as MultiFabs for MPMD::Copier, but place them in pinned host
+    // memory because the Noah-MP coupling path accesses them on both GPU and CPU.
+    amrex::MFInfo info;
+    info.SetArena(amrex::The_Pinned_Arena());
+
+    mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0, info);
+    mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0, info);
 
 #ifdef ERF_USE_NOAHMP_MPMD
     // Only initialize the Copier if doing an MPMD run
@@ -256,8 +259,6 @@ NOAHMP::Advance_With_State (const int& lev,
         int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
         int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
 
-        NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
-
         const Array4<const Real>& U_PHY  = xvel_in.const_array(mfi);
         const Array4<const Real>& V_PHY  = yvel_in.const_array(mfi);
         const Array4<const Real>& CONS   = cons_in.const_array(mfi);
@@ -302,7 +303,10 @@ NOAHMP::Advance_With_State (const int& lev,
         // Synchronize to ensure GPU kernel is complete before host access
         Gpu::streamSynchronize();
 
-        // Now on the host, copy data to NoahmpIO arrays
+#ifndef ERF_USE_NOAHMP_MPMD
+        NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
+
+        // Now on the host, copy data to NoahmpIO arrays.
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
             noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
@@ -315,34 +319,9 @@ NOAHMP::Advance_With_State (const int& lev,
             noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
         });
 
-        // Call the noahmpio driver code. This runs the land model forcing for
-        // each object in noahmpio_vect that represent a block in the domain.
-#ifndef ERF_USE_NOAHMP_MPMD
         noahmpio->itimestep = nstep+1;
         noahmpio->DriverMain();
-#else
-        if (amrex::MPMD::AppNum() == 0) {
-            // Signal App 1 to keep running for this step
-            int keep_running = 1;
-            if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
-            } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, MPI_COMM_WORLD);
-            }
 
-            // Send atmospheric forcing to App 1
-            mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
-
-            // Receive calculated fluxes back from App 1
-            mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
-        } else {
-            // If we are App 1, we just run the local physics driver
-            noahmpio->itimestep = nstep+1;
-            noahmpio->DriverMain();
-        }
-#endif
-
-        // Copy results from NoahmpIO back to temporary arrays
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
             noah_output_arr(i,j,0,NoahmpOutputComp::hfx)           = noahmpio->HFX(i,j);
@@ -356,6 +335,22 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
         });
+#else
+        if (amrex::MPMD::AppNum() == 0) {
+            // Signal App 1 to keep running for this step.
+            int keep_running = 1;
+            if (amrex::ParallelDescriptor::MyProc() == 0) {
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            } else {
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, MPI_COMM_WORLD);
+            }
+
+            // Exchange Noah-MP forcing/fluxes through the MPMD copier. App 1
+            // runs the land model and fills mf_noah_output on its side.
+            mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
+            mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
+        }
+#endif
 
         // Copy forcing data from Noahmp to ERF
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -392,6 +387,53 @@ NOAHMP::Advance_With_State (const int& lev,
 };
 
 #ifdef ERF_USE_NOAHMP_MPMD
+void
+NOAHMP::Advance_MPMD_Only (const int& nstep)
+{
+    Print() << "Noah-MP MPMD step started at time step: " << nstep+1 << std::endl;
+
+    int idb = 0;
+    for (MFIter mfi(*mf_noah_input); mfi.isValid(); ++mfi, ++idb) {
+        const Box& bx = mfi.tilebox();
+
+        NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
+
+        const Array4<const Real>& noah_input_arr  = mf_noah_input->const_array(mfi);
+        Array4<Real>              noah_output_arr = mf_noah_output->array(mfi);
+
+        LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
+        {
+            noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
+            noahmpio->V_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::v_phy);
+            noahmpio->T_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::t_phy);
+            noahmpio->QV_CURR(i,1,j) = noah_input_arr(i,j,0,NoahmpInputComp::qv_curr);
+            noahmpio->P8W(i,1,j)     = noah_input_arr(i,j,0,NoahmpInputComp::p8w);
+            noahmpio->SWDOWN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::swdown);
+            noahmpio->GLW(i,j)       = noah_input_arr(i,j,0,NoahmpInputComp::glw);
+            noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
+        });
+
+        noahmpio->itimestep = nstep+1;
+        noahmpio->DriverMain();
+
+        LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
+        {
+            noah_output_arr(i,j,0,NoahmpOutputComp::hfx)           = noahmpio->HFX(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::lh)            = noahmpio->LH(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::tau_ew)        = noahmpio->TAU_EW(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::tau_ns)        = noahmpio->TAU_NS(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::tsk)           = noahmpio->TSK(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::emiss)         = noahmpio->EMISS(i,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_vis) = noahmpio->ALBSFCDIRXY(i,1,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_nir) = noahmpio->ALBSFCDIRXY(i,2,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
+            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
+        });
+    }
+
+    Print() << "Noah-MP MPMD step completed" << std::endl;
+}
+
 void NOAHMP::Run_MPMD_Advance()
 {
 
@@ -424,8 +466,6 @@ void NOAHMP::Run_MPMD_Advance()
     dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
 
     amrex::MultiFab cons_dummy(ba, dm, 1, 0);
-    amrex::MultiFab xvel_dummy(ba, dm, 1, 0);
-    amrex::MultiFab yvel_dummy(ba, dm, 1, 0);
 
     amrex::Real dt = 0.0;
     amrex::ParmParse pp_erf("erf");
@@ -449,8 +489,8 @@ void NOAHMP::Run_MPMD_Advance()
         // 1. Receive forcing data from ERF App 0
         lsm.mpmd_copier->recv(*(lsm.mf_noah_input), 0, NoahmpInputComp::NumComps);
 
-        // 2. Run Noah-MP Physics
-        lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
+        // 2. Run Noah-MP Physics directly from the copied forcing fields.
+        lsm.Advance_MPMD_Only(step);
 
         // 3. Send calculated fluxes back to ERF App 0
         lsm.mpmd_copier->send(*(lsm.mf_noah_output), 0, NoahmpOutputComp::NumComps);

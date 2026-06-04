@@ -202,6 +202,10 @@ public:
 #endif
 
 private:
+#ifdef ERF_USE_NOAHMP_MPMD
+    void Advance_MPMD_Only (const int& nstep);
+#endif
+
     // number of lsm data variables
     int m_lsm_data_size = LsmData_NOAHMP::NumVars;
 
