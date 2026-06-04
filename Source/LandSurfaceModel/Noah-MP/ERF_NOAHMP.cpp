@@ -327,9 +327,9 @@ NOAHMP::Advance_With_State (const int& lev,
             // Signal App 1 to keep running for this step
             int keep_running = 1;
             if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::ParallelContext::Global());
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
             } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::ParallelContext::Global());
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, MPI_COMM_WORLD);
             }
 
             // Send atmospheric forcing to App 1
@@ -434,7 +434,7 @@ void NOAHMP::Run_MPMD_Advance()
     // The Adaptive MPMD Loop
     while (true) {
         // Wait for App 0 signal (0 = stop, 1 = continue)
-        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, amrex::ParallelContext::Global());
+        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, MPI_COMM_WORLD);
         if (!keep_running) {
             break;
         }
