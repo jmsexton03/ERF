@@ -10,6 +10,7 @@
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_Vector.H>
 #include <AMReX_MFIter.H>
+#include <AMReX_MPMD.H>
 
 #include <ERF_NullSurf.H>
 #include <ERF_Constants.H>

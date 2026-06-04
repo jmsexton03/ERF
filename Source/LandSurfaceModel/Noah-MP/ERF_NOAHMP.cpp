@@ -5,7 +5,6 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
-#include <AMReX_MPMD.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_Constants.H>
