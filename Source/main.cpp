@@ -185,74 +185,10 @@ return code;
         }
     } else if (app_id == 1) {
 #ifdef ERF_USE_NOAHMP_MPMD
-        // Memory-optimized land branch
-
-        // 1. Manually parse geometry for MultiFab setup
-        ParmParse pp_amr("amr");
-        Vector<int> n_cell(3);
-        pp_amr.getarr("n_cell", n_cell);
-
-        ParmParse pp_geom("geometry");
-        Real prob_lo[3], prob_hi[3];
-        pp_geom.getarr("prob_lo", prob_lo);
-        pp_geom.getarr("prob_hi", prob_hi);
-
-        RealBox lb(prob_lo, prob_hi);
-        Geometry geom(lb);
-
-        // 2. Construct dummy MultiFabs for NOAHMP::Init and Advance
-        Box box(IntVect(0,0,0), IntVect(n_cell[0]-1, n_cell[1]-1, 0));
-        BoxArray ba(box);
-        DistributionMapping dm;
-        dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
-        MultiFab cons_dummy(ba, dm, 1);
-        MultiFab xvel_dummy(ba, dm, 1);
-        MultiFab yvel_dummy(ba, dm, 1);
-
-        Real dt = 0.0;
-        ParmParse pp_erf("erf");
-        pp_erf.query("dt", dt);
-
-        // 3. Instantiate optimized Noah-MP driver only
-        NOAHMP lsm;
-        lsm.Init(0, cons_dummy, geom, dt);
-
-        // 4. Execution loop (Synchronized with App 0)
-        int max_steps = 0;
-        if (!pp_erf.query("max_steps", max_steps)) {
-            pp_erf.query("max_step", max_steps);
-        }
-
-        std::vector<int> app0_dest_ranks(cons_dummy.local_size());
-
-        for (int step = 0; step < max_steps; ++step) {
-            // Receive atmospheric forcing data from App 0
-            int idb = 0;
-            for (MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
-                int global_box_id = mfi.index();
-                int recv_count = mfi.tilebox().numPts() * NoahmpInputComp::NumComps;
-                amrex::Real* recv_ptr = lsm.noahmp_input_tmp[idb]->dataPtr();
-
-                MPI_Status status;
-                MPI_Recv(recv_ptr, recv_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                         MPI_ANY_SOURCE, global_box_id, amrex::MPMD::MyGlobalComm(), &status);
-
-                app0_dest_ranks[idb] = status.MPI_SOURCE;
-            }
-
-            lsm.Advance_With_State(0, cons_dummy, xvel_dummy, yvel_dummy, nullptr, nullptr, dt, step);
-
-            // Send calculated fluxes back to App 0
-            idb = 0;
-            for (MFIter mfi(cons_dummy); mfi.isValid(); ++mfi, ++idb) {
-                int global_box_id = mfi.index();
-                int send_count = mfi.tilebox().numPts() * NoahmpOutputComp::NumComps;
-                amrex::Real* send_ptr = lsm.noahmp_output_tmp[idb]->dataPtr();
-
-                MPI_Send(send_ptr, send_count, amrex::ParallelDescriptor::Mpi_typemap<amrex::Real>::type(),
-                         app0_dest_ranks[idb], global_box_id, amrex::MPMD::MyGlobalComm());
-            }
-        }
+        amrex::Print() << "Initializing Noah-MP MPMD Driver on App 1..." << std::endl;
+        NOAHMP::Run_MPMD_Advance();
+#else
+        amrex::Abort("App 1 detected but ERF_USE_NOAHMP_MPMD is not compiled!");
 #endif
     }
 
