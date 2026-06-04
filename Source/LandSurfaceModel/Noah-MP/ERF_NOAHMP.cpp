@@ -121,12 +121,10 @@ NOAHMP::Init (const int& lev,
 
     amrex::DistributionMapping dm2d = cons_in.DistributionMap();
 
-    // Use Pinned Memory for fast Host <-> Device copies
-    amrex::MFInfo info;
-    info.SetArena(amrex::The_Pinned_Arena());
-
-    mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0, info);
-    mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0, info);
+    // Allocate MultiFabs (AMReX will automatically use Device Memory on GPUs
+    // and Host Memory on CPUs). The MPMD Copier natively supports GPU-aware MPI.
+    mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0);
+    mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0);
 
 #ifdef ERF_USE_NOAHMP_MPMD
     // Only initialize the Copier if doing an MPMD run
@@ -396,19 +394,28 @@ NOAHMP::Advance_With_State (const int& lev,
 #ifdef ERF_USE_NOAHMP_MPMD
 void NOAHMP::Run_MPMD_Advance()
 {
+
+    // 1. Get Domain Size
     amrex::ParmParse pp_amr("amr");
     amrex::Vector<int> n_cell(3);
     pp_amr.getarr("n_cell", n_cell);
 
+    // 2. Get Physical Bounds (using prob_extent)
     amrex::ParmParse pp_geom("geometry");
-    amrex::Vector<amrex::Real> prob_lo(3);
+    amrex::Vector<amrex::Real> prob_lo  = {0.0, 0.0, 0.0}; 
+    amrex::Vector<amrex::Real> prob_extent(3);
+    pp_geom.queryarr("prob_lo", prob_lo);
+    pp_geom.getarr("prob_extent", prob_extent);
+
+    // Calculate prob_hi dynamically
     amrex::Vector<amrex::Real> prob_hi(3);
-    pp_geom.getarr("prob_lo", prob_lo);
-    pp_geom.getarr("prob_hi", prob_hi);
+    for (int i = 0; i < 3; ++i) {
+        prob_hi[i] = prob_lo[i] + prob_extent[i];
+    }
 
+    // 3. Construct RealBox and Geometry
     amrex::RealBox lb(prob_lo.dataPtr(), prob_hi.dataPtr());
-
-    // Geometry needs the 2D Box first
+    
     amrex::Box domain_bx(amrex::IntVect(0,0,0), amrex::IntVect(n_cell[0]-1, n_cell[1]-1, 0));
     amrex::Geometry geom(domain_bx, &lb, amrex::CoordSys::cartesian, nullptr);
     amrex::BoxArray ba(domain_bx);
