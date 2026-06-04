@@ -22,6 +22,7 @@
 #include "ERF_TerrainMetrics.H"
 #include "ERF_EBIFTerrain.H"
 #include "ERF_HurricaneDiagnostics.H"
+#include <AMReX_MPMD.H>
 
 #ifdef ERF_USE_NETCDF
 #include "ERF_ReadFromWRFInput.H"
@@ -2359,7 +2360,15 @@ ERF::init_only (int lev, Real elapsed_time)
     // - The fields set by init_custom_pert are **perturbations** to the
     //   background flow set based on init_type
     if (solverChoice.init_type != InitType::NCFile) {
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] Calling init_custom at level " << lev
+                          << " after core initialization and lower-boundary setup"
+                          << std::endl;
         init_custom(lev);
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] Completed init_custom at level " << lev << std::endl;
     }
 
     // Ensure that the face-based data are the same on both sides of a periodic domain.

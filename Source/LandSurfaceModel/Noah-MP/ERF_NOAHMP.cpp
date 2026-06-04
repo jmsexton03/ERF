@@ -54,6 +54,16 @@ NOAHMP::Init (const int& lev,
     ParmParse pp("erf");
     pp.query("plot_int_1" , m_plot_int_1);
 
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Init start lev=" << lev
+                      << " domain lo=(" << domain.smallEnd(0) << "," << domain.smallEnd(1) << "," << domain.smallEnd(2) << ")"
+                      << " hi=(" << domain.bigEnd(0) << "," << domain.bigEnd(1) << "," << domain.bigEnd(2) << ")"
+                      << " cons boxes=" << cons_in.boxArray().size()
+                      << " local boxes=" << cons_in.local_size()
+                      << " dt=" << dt
+                      << std::endl;
+
     // NOTE: All boxes in ba extend from zlo to zhi, so this transform is valid.
     //       If that were to change, the dm and new ba are no longer valid and
     //       direct copying between lsm data/flux vars cannot be done in a parfor.
@@ -129,6 +139,14 @@ NOAHMP::Init (const int& lev,
     mf_noah_input  = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpInputComp::NumComps, 0, info);
     mf_noah_output = std::make_unique<amrex::MultiFab>(ba2d, dm2d, NoahmpOutputComp::NumComps, 0, info);
 
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Init built ba2d size=" << ba2d.size()
+                      << " input comps=" << mf_noah_input->nComp()
+                      << " output comps=" << mf_noah_output->nComp()
+                      << " input local size=" << mf_noah_input->local_size()
+                      << std::endl;
+
 #ifdef ERF_USE_NOAHMP_MPMD
     // Only initialize the Copier if doing an MPMD run
     mpmd_copier = std::make_unique<amrex::MPMD::Copier>(ba2d, dm2d);
@@ -139,6 +157,18 @@ NOAHMP::Init (const int& lev,
     for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
         Box bx = mfi.tilebox();
         if (bx.smallEnd(2) != klo) { continue; }
+
+        Box bx2d = bx;
+        bx2d.makeSlab(2, klo);
+
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb
+                          << " tilebox lo=(" << bx.smallEnd(0) << "," << bx.smallEnd(1) << "," << bx.smallEnd(2) << ")"
+                          << " hi=(" << bx.bigEnd(0) << "," << bx.bigEnd(1) << "," << bx.bigEnd(2) << ")"
+                          << " slab lo=(" << bx2d.smallEnd(0) << "," << bx2d.smallEnd(1) << "," << bx2d.smallEnd(2) << ")"
+                          << " hi=(" << bx2d.bigEnd(0) << "," << bx2d.bigEnd(1) << "," << bx2d.bigEnd(2) << ")"
+                          << std::endl;
 
         // Get reference to the noahmpio object
         NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
@@ -159,9 +189,15 @@ NOAHMP::Init (const int& lev,
         noahmpio->comm = MPI_Comm_c2f(ParallelDescriptor::Communicator());
 
         // Read namelist.erf file
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " ReadNamelist begin" << std::endl;
         noahmpio->ReadNamelist();
 
         // Read the headers from the NetCDF land file
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " ReadLandHeader begin" << std::endl;
         noahmpio->ReadLandHeader();
 
         noahmpio->xstart = bx.smallEnd(0);
@@ -194,20 +230,35 @@ NOAHMP::Init (const int& lev,
         noahmpio->kme = 2;
 
         // Allocate memory in Fortran for IO variables
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " VarInitDefault begin" << std::endl;
         noahmpio->VarInitDefault();
 
         // Read NoahmpTable.TBL
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " ReadTable begin" << std::endl;
         noahmpio->ReadTable();
 
         // Read and initialize data from the NetCDF land file
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " ReadLandMain begin" << std::endl;
         noahmpio->ReadLandMain();
 
         // Compute additional initial values
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " InitMain begin" << std::endl;
         noahmpio->InitMain();
 
         // Write initial plotfile
         Print() << "Noah-MP writing lnd.nc file at lev: " << lev << std::endl;
         noahmpio->WriteLand(0);
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Init block " << idb << " completed" << std::endl;
     }
 
   Print() << "Noah-MP initialization completed" << std::endl;
@@ -236,6 +287,14 @@ NOAHMP::Advance_With_State (const int& lev,
     Box domain = m_geom.Domain();
 
     Print () << "Noah-MP driver started at time step: " << nstep+1 << std::endl;
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Advance_With_State start lev=" << lev
+                      << " step=" << nstep+1
+                      << " domain lo=(" << domain.smallEnd(0) << "," << domain.smallEnd(1) << "," << domain.smallEnd(2) << ")"
+                      << " hi=(" << domain.bigEnd(0) << "," << domain.bigEnd(1) << "," << domain.bigEnd(2) << ")"
+                      << " cons local boxes=" << cons_in.local_size()
+                      << std::endl;
 
     bool is_moist = (cons_in.nComp() > RhoQ1_comp);
 
@@ -254,6 +313,15 @@ NOAHMP::Advance_With_State (const int& lev,
 
         bx.makeSlab(2,klo);
         gbx.makeSlab(2,klo);
+
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State block " << idb
+                          << " bx lo=(" << bx.smallEnd(0) << "," << bx.smallEnd(1) << "," << bx.smallEnd(2) << ")"
+                          << " hi=(" << bx.bigEnd(0) << "," << bx.bigEnd(1) << "," << bx.bigEnd(2) << ")"
+                          << " gbx lo=(" << gbx.smallEnd(0) << "," << gbx.smallEnd(1) << "," << gbx.smallEnd(2) << ")"
+                          << " hi=(" << gbx.bigEnd(0) << "," << gbx.bigEnd(1) << "," << gbx.bigEnd(2) << ")"
+                          << std::endl;
 
         // For limiting when populating ghost cells
         int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
@@ -302,6 +370,10 @@ NOAHMP::Advance_With_State (const int& lev,
 
         // Synchronize to ensure GPU kernel is complete before host access
         Gpu::streamSynchronize();
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State block " << idb
+                          << " completed ERF-to-Noahmp forcing pack" << std::endl;
 
 #ifndef ERF_USE_NOAHMP_MPMD
         NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
@@ -320,6 +392,10 @@ NOAHMP::Advance_With_State (const int& lev,
         });
 
         noahmpio->itimestep = nstep+1;
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State block " << idb
+                          << " calling DriverMain locally" << std::endl;
         noahmpio->DriverMain();
 
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
@@ -339,6 +415,10 @@ NOAHMP::Advance_With_State (const int& lev,
         if (amrex::MPMD::AppNum() == 0) {
             // Signal App 1 to keep running for this step.
             int keep_running = 1;
+            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                              << " rank " << amrex::ParallelDescriptor::MyProc()
+                              << "] NOAHMP::Advance_With_State block " << idb
+                              << " entering MPMD exchange" << std::endl;
             if (amrex::ParallelDescriptor::MyProc() == 0) {
                 MPI_Bcast(&keep_running, 1, MPI_INT, 0, MPI_COMM_WORLD);
             } else {
@@ -348,7 +428,15 @@ NOAHMP::Advance_With_State (const int& lev,
             // Exchange Noah-MP forcing/fluxes through the MPMD copier. App 1
             // runs the land model and fills mf_noah_output on its side.
             mpmd_copier->send(*mf_noah_input, 0, NoahmpInputComp::NumComps);
+            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                              << " rank " << amrex::ParallelDescriptor::MyProc()
+                              << "] NOAHMP::Advance_With_State block " << idb
+                              << " completed MPMD send, waiting for recv" << std::endl;
             mpmd_copier->recv(*mf_noah_output, 0, NoahmpOutputComp::NumComps);
+            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                              << " rank " << amrex::ParallelDescriptor::MyProc()
+                              << "] NOAHMP::Advance_With_State block " << idb
+                              << " completed MPMD recv" << std::endl;
         }
 #endif
 
@@ -377,6 +465,11 @@ NOAHMP::Advance_With_State (const int& lev,
             ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
             ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
         });
+
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_With_State block " << idb
+                          << " copied NoahMP output back to ERF arrays" << std::endl;
     }
 
     // Fill the ghost cells
@@ -384,6 +477,10 @@ NOAHMP::Advance_With_State (const int& lev,
         lsm_fab_flux[ivar]->FillBoundary(m_geom.periodicity());
     }
     Print () << "Noah-MP driver completed" << std::endl;
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Advance_With_State end step=" << nstep+1
+                      << std::endl;
 };
 
 #ifdef ERF_USE_NOAHMP_MPMD
@@ -391,10 +488,22 @@ void
 NOAHMP::Advance_MPMD_Only (const int& nstep)
 {
     Print() << "Noah-MP MPMD step started at time step: " << nstep+1 << std::endl;
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Advance_MPMD_Only start step=" << nstep+1
+                      << " local boxes=" << mf_noah_input->local_size()
+                      << std::endl;
 
     int idb = 0;
     for (MFIter mfi(*mf_noah_input); mfi.isValid(); ++mfi, ++idb) {
         const Box& bx = mfi.tilebox();
+
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_MPMD_Only block " << idb
+                          << " bx lo=(" << bx.smallEnd(0) << "," << bx.smallEnd(1) << "," << bx.smallEnd(2) << ")"
+                          << " hi=(" << bx.bigEnd(0) << "," << bx.bigEnd(1) << "," << bx.bigEnd(2) << ")"
+                          << std::endl;
 
         NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
 
@@ -414,6 +523,10 @@ NOAHMP::Advance_MPMD_Only (const int& nstep)
         });
 
         noahmpio->itimestep = nstep+1;
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_MPMD_Only block " << idb
+                          << " calling DriverMain" << std::endl;
         noahmpio->DriverMain();
 
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
@@ -429,13 +542,25 @@ NOAHMP::Advance_MPMD_Only (const int& nstep)
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
         });
+
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Advance_MPMD_Only block " << idb
+                          << " completed output pack" << std::endl;
     }
 
     Print() << "Noah-MP MPMD step completed" << std::endl;
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Advance_MPMD_Only end step=" << nstep+1
+                      << std::endl;
 }
 
 void NOAHMP::Run_MPMD_Advance()
 {
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Run_MPMD_Advance entering" << std::endl;
 
     // 1. Get Domain Size
     amrex::ParmParse pp_amr("amr");
@@ -462,6 +587,16 @@ void NOAHMP::Run_MPMD_Advance()
     amrex::Geometry geom(domain_bx, &lb, amrex::CoordSys::cartesian, nullptr);
     amrex::BoxArray ba(domain_bx);
 
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Run_MPMD_Advance geometry domain lo=("
+                      << domain_bx.smallEnd(0) << "," << domain_bx.smallEnd(1) << "," << domain_bx.smallEnd(2)
+                      << ") hi=("
+                      << domain_bx.bigEnd(0) << "," << domain_bx.bigEnd(1) << "," << domain_bx.bigEnd(2)
+                      << ") prob_lo=(" << prob_lo[0] << "," << prob_lo[1] << "," << prob_lo[2]
+                      << ") prob_hi=(" << prob_hi[0] << "," << prob_hi[1] << "," << prob_hi[2]
+                      << ")" << std::endl;
+
     amrex::DistributionMapping dm;
     dm.RoundRobinProcessorMap(ba.size(), amrex::ParallelDescriptor::NProcs());
 
@@ -473,6 +608,9 @@ void NOAHMP::Run_MPMD_Advance()
 
     NOAHMP lsm;
     lsm.Init(0, cons_dummy, geom, dt); // this creates mf_noah_input, mf_noah_output, and mpmd_copier
+    amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                      << " rank " << amrex::ParallelDescriptor::MyProc()
+                      << "] NOAHMP::Run_MPMD_Advance finished Init" << std::endl;
 
     int step = 0;
     int keep_running = 1;
@@ -481,18 +619,38 @@ void NOAHMP::Run_MPMD_Advance()
     // The Adaptive MPMD Loop
     while (true) {
         // Wait for App 0 signal (0 = stop, 1 = continue)
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Run_MPMD_Advance waiting for keep_running at step "
+                          << step+1 << std::endl;
         MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, MPI_COMM_WORLD);
         if (!keep_running) {
+            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                              << " rank " << amrex::ParallelDescriptor::MyProc()
+                              << "] NOAHMP::Run_MPMD_Advance received stop signal at step "
+                              << step+1 << std::endl;
             break;
         }
 
         // 1. Receive forcing data from ERF App 0
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Run_MPMD_Advance receiving forcing for step "
+                          << step+1 << std::endl;
         lsm.mpmd_copier->recv(*(lsm.mf_noah_input), 0, NoahmpInputComp::NumComps);
 
         // 2. Run Noah-MP Physics directly from the copied forcing fields.
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Run_MPMD_Advance launching Advance_MPMD_Only for step "
+                          << step+1 << std::endl;
         lsm.Advance_MPMD_Only(step);
 
         // 3. Send calculated fluxes back to ERF App 0
+        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
+                          << " rank " << amrex::ParallelDescriptor::MyProc()
+                          << "] NOAHMP::Run_MPMD_Advance sending fluxes for step "
+                          << step+1 << std::endl;
         lsm.mpmd_copier->send(*(lsm.mf_noah_output), 0, NoahmpOutputComp::NumComps);
 
         step++;
