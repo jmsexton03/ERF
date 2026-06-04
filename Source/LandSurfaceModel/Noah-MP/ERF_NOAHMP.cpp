@@ -327,9 +327,9 @@ NOAHMP::Advance_With_State (const int& lev,
             // Signal App 1 to keep running for this step
             int keep_running = 1;
             if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::MPMD::MyGlobalComm());
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::ParallelContext::Global());
             } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::MPMD::MyGlobalComm());
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::ParallelContext::Global());
             }
 
             // Send atmospheric forcing to App 1
@@ -401,11 +401,12 @@ void NOAHMP::Run_MPMD_Advance()
     pp_amr.getarr("n_cell", n_cell);
 
     amrex::ParmParse pp_geom("geometry");
-    amrex::Real prob_lo[3], prob_hi[3];
+    amrex::Vector<amrex::Real> prob_lo(3);
+    amrex::Vector<amrex::Real> prob_hi(3);
     pp_geom.getarr("prob_lo", prob_lo);
     pp_geom.getarr("prob_hi", prob_hi);
 
-    amrex::RealBox lb(prob_lo, prob_hi);
+    amrex::RealBox lb(prob_lo.dataPtr(), prob_hi.dataPtr());
 
     // Geometry needs the 2D Box first
     amrex::Box domain_bx(amrex::IntVect(0,0,0), amrex::IntVect(n_cell[0]-1, n_cell[1]-1, 0));
@@ -433,7 +434,7 @@ void NOAHMP::Run_MPMD_Advance()
     // The Adaptive MPMD Loop
     while (true) {
         // Wait for App 0 signal (0 = stop, 1 = continue)
-        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, amrex::MPMD::MyGlobalComm());
+        MPI_Bcast(&keep_running, 1, MPI_INT, root_app0, amrex::ParallelContext::Global());
         if (!keep_running) {
             break;
         }

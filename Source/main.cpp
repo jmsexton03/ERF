@@ -173,9 +173,9 @@ return code;
             // ERF is done. Signal NoahMP (App 1) to break its loop.
             int keep_running = 0;
             if (amrex::ParallelDescriptor::MyProc() == 0) {
-                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::MPMD::MyGlobalComm());
+                MPI_Bcast(&keep_running, 1, MPI_INT, 0, amrex::ParallelContext::Global());
             } else {
-                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::MPMD::MyGlobalComm());
+                MPI_Bcast(&keep_running, 1, MPI_INT, MPI_PROC_NULL, amrex::ParallelContext::Global());
             }
 #endif
 
