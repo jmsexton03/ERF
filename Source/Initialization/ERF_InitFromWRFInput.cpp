@@ -1440,13 +1440,13 @@ init_terrain_from_wrfinput (int /*lev*/,
         });
 
         // Sanity check
+        const Box& vbox = mfi.validbox();
         Print() << "  [rank " << ParallelDescriptor::MyProc() << "] Verifying grid integrity"
                 << " for validbox lo=("
-                << vbx.smallEnd(0) << "," << vbx.smallEnd(1) << "," << vbx.smallEnd(2) << ") hi=("
-                << vbx.bigEnd(0)   << "," << vbx.bigEnd(1)   << "," << vbx.bigEnd(2)   << ")"
+                << vbox.smallEnd(0) << "," << vbox.smallEnd(1) << "," << vbox.smallEnd(2) << ") hi=("
+                << vbox.bigEnd(0)   << "," << vbox.bigEnd(1)   << "," << vbox.bigEnd(2)   << ")"
                 << " klo=" << klo << " khi=" << khi
                 << std::endl;
-        const Box& vbox = mfi.validbox();
         if (vbox.smallEnd(2) == klo) {
             Box z_surf_faces = makeSlab(vbox, 2, klo);
             ParallelFor(z_surf_faces, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
