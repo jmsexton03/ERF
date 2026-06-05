@@ -10,7 +10,10 @@
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_Vector.H>
 #include <AMReX_MFIter.H>
-#include <AMReX_MPMD.H>
+
+#ifdef ERF_USE_NOAHMP_SPMD
+#include <mpi.h>
+#endif
 
 #include <ERF_NullSurf.H>
 #include <ERF_Constants.H>
@@ -197,15 +200,24 @@ public:
         return varIdx;
     }
 
-#ifdef ERF_USE_NOAHMP_MPMD
-    static constexpr int MPMDControlTag = 4242;
-    static void SetMPMDRootRanks (int app0_root_global, int app1_root_global);
-    static void Run_MPMD_Advance();
+#ifdef ERF_USE_NOAHMP_SPMD
+    static constexpr int SPMDControlTag = 4242;
+    static constexpr int SPMDMetaSizeTag = 4243;
+    static constexpr int SPMDMetaBoxesTag = 4244;
+    static constexpr int SPMDInputTag = 4245;
+    static constexpr int SPMDOutputTag = 4246;
+
+    static void ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank);
+    static void ShutdownSPMDService ();
+    static void RunSPMDService ();
 #endif
 
 private:
-#ifdef ERF_USE_NOAHMP_MPMD
-    void Advance_MPMD_Only (const int& nstep);
+#ifdef ERF_USE_NOAHMP_SPMD
+    void SendSPMDMetadata () const;
+    void SendSPMDInput ();
+    void ReceiveSPMDOutput ();
+    void Advance_SPMD_Only (const int& nstep);
 #endif
 
     // number of lsm data variables
@@ -256,11 +268,6 @@ private:
     // 2D Pinned MultiFabs to hold forcing/flux data (Used by ALL builds)
     std::unique_ptr<amrex::MultiFab> mf_noah_input;
     std::unique_ptr<amrex::MultiFab> mf_noah_output;
-
-#ifdef ERF_USE_NOAHMP_MPMD
-    // The AMReX object that handles all async MPI routing (MPMD ONLY)
-    std::unique_ptr<amrex::MPMD::Copier> mpmd_copier;
-#endif
 
 public:
     // Plot frequency

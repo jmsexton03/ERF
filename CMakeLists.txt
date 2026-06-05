@@ -155,7 +155,7 @@ option(ERF_ENABLE_NVHPC "Enable NVHPC" OFF)
 
 #Options for NOAH-MP
 option(ERF_ENABLE_NOAHMP "Enable Noah-MP" OFF)
-option(ERF_ENABLE_NOAHMP_MPMD "Enable Noah-MP MPMD" OFF)
+option(ERF_ENABLE_NOAHMP_SPMD "Enable Noah-MP MPMD" OFF)
 
 #Other parameterizations
 option(ERF_ENABLE_WINDFARM "Enable wind farm parameterizations" OFF)

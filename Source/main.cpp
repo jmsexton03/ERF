@@ -1,4 +1,4 @@
-#define ERF_USE_NOAHMP_MPMD
+#include <cstring>
 #include <iostream>
 
 #include <AMReX.H>
@@ -9,23 +9,63 @@
 #include "ERF.H"
 #include "ERF_InputsName.H"
 
-#if defined(ERF_USE_WW3_COUPLING) || defined(ERF_USE_NOAHMP_MPMD)
-#define ERF_USE_MPMD
+#if defined(ERF_USE_WW3_COUPLING) || defined(ERF_USE_NOAHMP_SPMD)
+#include <mpi.h>
 #endif
 
-#ifdef ERF_USE_MPMD
-#include <mpi.h>
+#ifdef ERF_USE_WW3_COUPLING
 #include <AMReX_MPMD.H>
 #endif
 
-#ifdef ERF_USE_NOAHMP_MPMD
-// Include the actual NOAHMP header we optimized
-#include <ERF_NOAHMP.H> 
+#ifdef ERF_USE_NOAHMP_SPMD
+#include <ERF_NOAHMP.H>
+#include <sstream>
 #endif
 
 std::string inputs_name;
 
 using namespace amrex;
+
+namespace {
+
+int find_dashdash (int argc, char* argv[])
+{
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--") == 0) {
+            return i;
+        }
+    }
+    return argc;
+}
+
+int parse_erf_ranks (int argc, char* argv[], int nprocs)
+{
+#ifdef ERF_USE_NOAHMP_SPMD
+    const int dashdash = find_dashdash(argc, argv);
+    if (dashdash >= argc-1) {
+        amrex::Abort("NoahMP SPMD launch requires '-- <num_erf_ranks>' at the end of the command line");
+    }
+
+    int n_erf_ranks = 0;
+    std::istringstream iss(argv[dashdash+1]);
+    iss >> n_erf_ranks;
+
+    if (!iss || n_erf_ranks <= 0 || n_erf_ranks >= nprocs) {
+        amrex::Abort("Invalid NoahMP SPMD split: require 0 < num_erf_ranks < total MPI ranks");
+    }
+
+    const int n_noah_ranks = nprocs - n_erf_ranks;
+    if (n_erf_ranks != n_noah_ranks) {
+        amrex::Abort("Current NoahMP SPMD transport requires an equal ERF/Noah rank split");
+    }
+    return n_erf_ranks;
+#else
+    amrex::ignore_unused(argc, argv, nprocs);
+    return nprocs;
+#endif
+}
+
+}
 
 /**
  * Function to set the refine_grid_layout flags to (1,1,0) by default
@@ -69,7 +109,7 @@ int main (int argc, char* argv[])
 
 auto finalize_mpi_and_return = [](int code) {
 #ifdef AMREX_USE_MPI
-#ifdef ERF_USE_MPMD
+#ifdef ERF_USE_WW3_COUPLING
     amrex::MPMD::Finalize();
 #else
     MPI_Finalize();
@@ -134,90 +174,95 @@ return code;
         }
     }
 
-#ifdef ERF_USE_MPMD
-    MPI_Comm comm = amrex::MPMD::Initialize(argc, argv);
-    amrex::Initialize(argc,argv,true,comm,add_par);
-#else
-    amrex::Initialize(argc,argv,true,MPI_COMM_WORLD,add_par);
-#endif
-
-#ifdef ERF_USE_KOKKOS
-    // Initialize kokkos
-    if (!Kokkos::is_initialized()) {
-        Kokkos::initialize(Kokkos::InitializationSettings()
-                           .set_device_id(amrex::Gpu::Device::deviceId()));
-    }
-#endif
-
     // Save the inputs file name for later.
     if (!strchr(argv[1], '=')) {
       inputs_name = argv[1];
     }
 
-    // timer for profiling
-    BL_PROFILE_VAR("main()", pmain);
+    int myproc_world = 0;
+    int nprocs_world = 1;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myproc_world);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
 
-    // wallclock time
-    const Real strt_total = Real(amrex::second());
+#ifdef ERF_USE_NOAHMP_SPMD
+    const int n_erf_ranks = parse_erf_ranks(argc, argv, nprocs_world);
+    const int dashdash = find_dashdash(argc, argv);
+    const bool is_erf_rank = (myproc_world < n_erf_ranks);
+    MPI_Comm comm_sub;
+    MPI_Comm_split(MPI_COMM_WORLD, is_erf_rank ? 0 : 1, myproc_world, &comm_sub);
 
-    int app_id = amrex::MPMD::AppNum();
+    NOAHMP::ConfigureSPMD(n_erf_ranks, nprocs_world - n_erf_ranks, is_erf_rank);
 
-#ifdef ERF_USE_NOAHMP_MPMD
-    int local_rank = amrex::ParallelDescriptor::MyProc();
-    int global_rank = -1;
-    MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
+    if (is_erf_rank) {
+        amrex::Initialize(dashdash, argv, true, comm_sub, add_par);
 
-    int my_app0_root = (app_id == 0 && local_rank == 0) ? global_rank : -1;
-    int my_app1_root = (app_id == 1 && local_rank == 0) ? global_rank : -1;
-    int app0_root_global = -1;
-    int app1_root_global = -1;
-
-    MPI_Allreduce(&my_app0_root, &app0_root_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_app1_root, &app1_root_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(app0_root_global >= 0 && app1_root_global >= 0,
-                                     "Failed to discover global root ranks for App 0 and App 1");
-
-    NOAHMP::SetMPMDRootRanks(app0_root_global, app1_root_global);
+#ifdef ERF_USE_KOKKOS
+        if (!Kokkos::is_initialized()) {
+            Kokkos::initialize(Kokkos::InitializationSettings()
+                               .set_device_id(amrex::Gpu::Device::deviceId()));
+        }
 #endif
 
-    if (app_id == 0) {
         {
-            // constructor - reads in parameters from inputs file
+            BL_PROFILE_VAR("main()", pmain);
+            const Real strt_total = Real(amrex::second());
             ERF erf;
             erf.InitData();
             erf.Evolve();
-
-#ifdef ERF_USE_NOAHMP_MPMD
-            // ERF is done. Signal NoahMP (App 1) to break its loop.
-            int keep_running = 0;
-            if (local_rank == 0) {
-                MPI_Send(&keep_running, 1, MPI_INT, app1_root_global,
-                         NOAHMP::MPMDControlTag, MPI_COMM_WORLD);
-            } else {
-                amrex::ignore_unused(keep_running);
-            }
-#endif
+            NOAHMP::ShutdownSPMDService();
 
             Real end_total = Real(amrex::second()) - strt_total;
             ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
             if (erf.Verbose()) {
                 amrex::Print() << "\nTotal Time: " << end_total << '\n';
             }
+
+            BL_PROFILE_VAR_STOP(pmain);
         }
-    } else if (app_id == 1) {
-#ifdef ERF_USE_NOAHMP_MPMD
-        amrex::Print() << "Initializing Noah-MP MPMD Driver on App 1..." << std::endl;
-        NOAHMP::Run_MPMD_Advance();
-#else
-        amrex::Abort("App 1 detected but ERF_USE_NOAHMP_MPMD is not compiled!");
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+#ifdef ERF_USE_KOKKOS
+        Kokkos::finalize();
 #endif
+
+        amrex::Finalize();
+    } else {
+        NOAHMP::RunSPMDService();
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+#else
+#ifdef ERF_USE_WW3_COUPLING
+    MPI_Comm comm = amrex::MPMD::Initialize(argc, argv);
+    amrex::Initialize(argc, argv, true, comm, add_par);
+#else
+    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, add_par);
+#endif
+
+ #ifdef ERF_USE_KOKKOS
+    if (!Kokkos::is_initialized()) {
+        Kokkos::initialize(Kokkos::InitializationSettings()
+                           .set_device_id(amrex::Gpu::Device::deviceId()));
+    }
+#endif
+
+    {
+        BL_PROFILE_VAR("main()", pmain);
+        const Real strt_total = Real(amrex::second());
+        ERF erf;
+        erf.InitData();
+        erf.Evolve();
+
+        Real end_total = Real(amrex::second()) - strt_total;
+        ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
+        if (erf.Verbose()) {
+            amrex::Print() << "\nTotal Time: " << end_total << '\n';
+        }
+
+        BL_PROFILE_VAR_STOP(pmain);
     }
 
-    // destroy timer for profiling
-    BL_PROFILE_VAR_STOP(pmain);
-
-#ifdef ERF_USE_MPMD
+#ifdef ERF_USE_WW3_COUPLING
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
 
@@ -226,9 +271,14 @@ return code;
 #endif
 
     amrex::Finalize();
+#endif
+
+#ifdef ERF_USE_NOAHMP_SPMD
+    MPI_Comm_free(&comm_sub);
+#endif
 
 #ifdef AMREX_USE_MPI
-#ifdef ERF_USE_MPMD
+#ifdef ERF_USE_WW3_COUPLING
     amrex::MPMD::Finalize();
 #else
     MPI_Finalize();

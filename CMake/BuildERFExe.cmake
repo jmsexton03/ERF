@@ -104,8 +104,8 @@ function(build_erf_lib erf_lib_name)
     target_link_libraries_system(${erf_lib_name} PUBLIC NoahMP::noahmp)
   endif()
 
-  if(ERF_ENABLE_NOAHMP_MPMD)
-    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_NOAHMP_MPMD)
+  if(ERF_ENABLE_NOAHMP_SPMD)
+    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_NOAHMP_SPMD)
     set(AMReX_MPMD TRUE CACHE BOOL "Enable AMReX MPMD support" FORCE)
   endif()
 

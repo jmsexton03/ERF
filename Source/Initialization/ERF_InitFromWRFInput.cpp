@@ -11,7 +11,6 @@
 
 #include <ERF_ReadFromWRFInput.H>
 #include <ERF_ReadFromWRFBdy.H>
-#include <AMReX_MPMD.H>
 
 using namespace amrex;
 
@@ -1104,38 +1103,12 @@ ERF::init_from_wrfinput (int lev,
         for (int itime(0); itime < ntimes; ++itime) {
             read_from_wrflow(itime, nc_low_file, geom[0].Domain(), low_data_zlo);
 
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << amrex::ParallelDescriptor::MyProc()
-                              << "] Finished read_from_wrflow for time slice " << itime
-                              << "; beginning update_sst_tsk with low_data_zlo size = "
-                              << low_data_zlo.size()
-                              << ", sst_lev[" << lev << "].size() = " << sst_lev[lev].size()
-                              << ", tsk_lev[" << lev << "].size() = " << tsk_lev[lev].size()
-                              << std::endl;
-
             update_sst_tsk(itime, geom[lev], ba2d[lev],
                            sst_lev[lev], tsk_lev[lev],
                            m_SurfaceLayer, low_data_zlo,
                            lev_new[Vars::cons], *mf_PSFC[lev],
                            l_rdOcp, lmask_lev[lev][0], use_moist);
-
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << amrex::ParallelDescriptor::MyProc()
-                              << "] Completed update_sst_tsk for time slice " << itime
-                              << " at level " << lev
-                              << " using ba2d size = " << ba2d[lev].size()
-                              << " and SurfaceLayer pointer " << m_SurfaceLayer
-                              << std::endl;
         }
-
-        amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                          << " rank " << amrex::ParallelDescriptor::MyProc()
-                          << "] Completed lower boundary initialization from " << nc_low_file
-                          << " with " << ntimes << " loaded time slices"
-                          << ", start_low_time = " << std::setprecision(timeprecision) << start_low_time
-                          << ", final_low_time = " << final_low_time
-                          << ", interval = " << low_time_interval
-                          << std::endl;
     } // lev == 0 && nc_low_file exists
 }
 
@@ -1287,26 +1260,6 @@ compute_terrain_top_and_bottom (const MultiFab& mf_PH,
         Box Fab2dBox_lo;
         if (vbx.smallEnd(2) == klo) {
             Fab2dBox_lo = makeSlab(vbx,2,klo);
-        }
-
-        bool top_owned    = (nodal_box.bigEnd(2) == khi);
-        bool bottom_owned = (vbx.smallEnd(2) == klo);
-        if (top_owned || bottom_owned) {
-            amrex::AllPrint() << "[app " << amrex::MPMD::AppNum()
-                              << " rank " << ParallelDescriptor::MyProc()
-                              << "] terrain reduction owner validbox lo=("
-                              << vbx.smallEnd(0) << "," << vbx.smallEnd(1) << "," << vbx.smallEnd(2) << ") hi=("
-                              << vbx.bigEnd(0)   << "," << vbx.bigEnd(1)   << "," << vbx.bigEnd(2)   << ")"
-                              << " nodal lo=("
-                              << nodal_box.smallEnd(0) << "," << nodal_box.smallEnd(1) << "," << nodal_box.smallEnd(2) << ") hi=("
-                              << nodal_box.bigEnd(0)   << "," << nodal_box.bigEnd(1)   << "," << nodal_box.bigEnd(2)   << ")"
-                              << " klo=" << klo << " khi=" << khi
-                              << " top_owned=" << top_owned
-                              << " bottom_owned=" << bottom_owned
-                              << " top_box_ok=" << Fab2dBox_hi.ok()
-                              << " top_m1_box_ok=" << Fab2dBox_hi_m1.ok()
-                              << " bottom_box_ok=" << Fab2dBox_lo.ok()
-                              << std::endl;
         }
 
         auto const& phb = mf_PHB.const_array(mfi);
