@@ -19,6 +19,67 @@ function(target_link_libraries_includes_only target visibility lib)
   endif()
 endfunction()
 
+function(erf_add_noahmp_spmd_service_object target)
+  set(_src ${PROJECT_SOURCE_DIR}/Source/LandSurfaceModel/Noah-MP/ERF_NOAHMP_SPMD_Service.cpp)
+  set(_obj_dir ${PROJECT_BINARY_DIR}/CMakeFiles/${target}.dir/noahmp_spmd)
+  set(_obj ${_obj_dir}/ERF_NOAHMP_SPMD_Service.cpp.o)
+
+  if(MPI_CXX_COMPILER)
+    set(_service_compiler ${MPI_CXX_COMPILER})
+  else()
+    set(_service_compiler ${CMAKE_CXX_COMPILER})
+  endif()
+
+  set(_service_defs ERF_USE_NOAHMP_SPMD)
+  if(MPI_CXX_COMPILE_DEFINITIONS)
+    list(APPEND _service_defs ${MPI_CXX_COMPILE_DEFINITIONS})
+  endif()
+
+  set(_service_def_flags "")
+  foreach(_def IN LISTS _service_defs)
+    list(APPEND _service_def_flags -D${_def})
+  endforeach()
+
+  set(_service_includes
+      ${PROJECT_SOURCE_DIR}/Source/LandSurfaceModel/Noah-MP
+      ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/drivers/erf
+      ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/drivers/erf/include)
+  if(MPI_CXX_INCLUDE_DIRS)
+    list(APPEND _service_includes ${MPI_CXX_INCLUDE_DIRS})
+  endif()
+  if(MPI_CXX_INCLUDE_PATH)
+    list(APPEND _service_includes ${MPI_CXX_INCLUDE_PATH})
+  endif()
+
+  set(_service_include_flags "")
+  foreach(_inc IN LISTS _service_includes)
+    list(APPEND _service_include_flags -I${_inc})
+  endforeach()
+
+  set(_service_compile_options "")
+  if(MPI_CXX_COMPILE_OPTIONS)
+    list(APPEND _service_compile_options ${MPI_CXX_COMPILE_OPTIONS})
+  endif()
+
+  add_custom_command(
+    OUTPUT ${_obj}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${_obj_dir}
+    COMMAND ${_service_compiler}
+            -std=c++17
+            ${_service_compile_options}
+            ${_service_def_flags}
+            ${_service_include_flags}
+            -c ${_src}
+            -o ${_obj}
+    DEPENDS
+            ${_src}
+            ${PROJECT_SOURCE_DIR}/Source/LandSurfaceModel/Noah-MP/ERF_NOAHMP_SPMD_Shared.H
+    COMMAND_EXPAND_LISTS
+    VERBATIM)
+
+  target_sources(${target} PRIVATE ${_obj})
+endfunction()
+
 function(build_erf_lib erf_lib_name)
 
   set(SRC_DIR ${PROJECT_SOURCE_DIR}/Source)
@@ -105,7 +166,11 @@ function(build_erf_lib erf_lib_name)
   endif()
 
   if(ERF_ENABLE_NOAHMP_SPMD)
+    if(NOT ERF_ENABLE_NOAHMP)
+      message(FATAL_ERROR "ERF_ENABLE_NOAHMP_SPMD requires ERF_ENABLE_NOAHMP")
+    endif()
     target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_NOAHMP_SPMD)
+    erf_add_noahmp_spmd_service_object(${erf_lib_name})
     set(AMReX_MPMD TRUE CACHE BOOL "Enable AMReX MPMD support" FORCE)
   endif()
 

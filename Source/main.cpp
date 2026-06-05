@@ -19,6 +19,7 @@
 
 #ifdef ERF_USE_NOAHMP_SPMD
 #include <ERF_NOAHMP.H>
+#include <ERF_NOAHMP_SPMD_Shared.H>
 #include <sstream>
 #endif
 
@@ -228,7 +229,7 @@ return code;
 
         amrex::Finalize();
     } else {
-        NOAHMP::RunSPMDService();
+        RunNOAHMPSPMDService();
         MPI_Barrier(MPI_COMM_WORLD);
     }
 #else

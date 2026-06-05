@@ -1,2 +1,6 @@
 CEXE_sources += ERF_NOAHMP.cpp
+ifeq ($(USE_NOAHMP_SPMD),TRUE)
+CEXE_sources += ERF_NOAHMP_SPMD_Service.cpp
+endif
 CEXE_headers += ERF_NOAHMP.H
+CEXE_headers += ERF_NOAHMP_SPMD_Shared.H
