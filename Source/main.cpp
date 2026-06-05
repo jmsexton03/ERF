@@ -195,7 +195,9 @@ return code;
     NOAHMP::ConfigureSPMD(n_erf_ranks, nprocs_world - n_erf_ranks, is_erf_rank);
 
     if (is_erf_rank) {
-        amrex::Initialize(dashdash, argv, true, comm_sub, add_par);
+        int erf_argc = dashdash;
+	char** erf_argv = argv;
+	amrex::Initialize(erf_argc, erf_argv, true, comm_sub, add_par);
 
 #ifdef ERF_USE_KOKKOS
         if (!Kokkos::is_initialized()) {
