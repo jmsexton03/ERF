@@ -13,6 +13,7 @@
 
 #ifdef ERF_USE_NOAHMP_SPMD
 #include <mpi.h>
+#include "ERF_NOAHMP_SPMD_Shared.H"
 #endif
 
 #include <ERF_NullSurf.H>
@@ -54,36 +55,6 @@ namespace LsmFlux_NOAHMP {
   };
 }
 
-
-namespace NoahmpInputComp {
-    enum {
-        u_phy = 0,
-        v_phy,
-        t_phy,
-        qv_curr,
-        p8w,
-        swdown,
-        glw,
-        coszen,
-        NumComps
-    };
-}
-
-namespace NoahmpOutputComp {
-    enum {
-        hfx = 0,
-        lh,
-        tau_ew,
-        tau_ns,
-        tsk,
-        emiss,
-        albsfcdir_vis,
-        albsfcdir_nir,
-        albsfcdif_vis,
-        albsfcdif_nir,
-        NumComps
-    };
-}
 
 class NOAHMP : public NullSurf {
 
@@ -201,15 +172,8 @@ public:
     }
 
 #ifdef ERF_USE_NOAHMP_SPMD
-    static constexpr int SPMDControlTag = 4242;
-    static constexpr int SPMDMetaSizeTag = 4243;
-    static constexpr int SPMDMetaBoxesTag = 4244;
-    static constexpr int SPMDInputTag = 4245;
-    static constexpr int SPMDOutputTag = 4246;
-
     static void ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank);
     static void ShutdownSPMDService ();
-    static void RunSPMDService ();
 #endif
 
 private:

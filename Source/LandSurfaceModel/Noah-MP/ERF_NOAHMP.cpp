@@ -60,24 +60,6 @@ partner_world_rank ()
     AMREX_ALWAYS_ASSERT(myproc < static_cast<int>(ranks_other.size()));
     return ranks_other[myproc];
 }
-
-struct NoahServiceBlock {
-    int ilo = 0;
-    int jlo = 0;
-    int ihi = -1;
-    int jhi = -1;
-    NoahmpIO_type io;
-    std::vector<double> input;
-    std::vector<double> output;
-};
-
-inline int
-slab_index (int i, int j, int ilo, int jlo, int nx, int ncomp, int comp)
-{
-    const int ii = i - ilo;
-    const int jj = j - jlo;
-    return (jj * nx + ii) * ncomp + comp;
-}
 }
 #endif
 
@@ -342,7 +324,7 @@ NOAHMP::ShutdownSPMDService ()
     const int done = 1;
     const int partner = partner_world_rank();
     MPI_Request request;
-    MPI_Isend(const_cast<int*>(&done), 1, MPI_INT, partner, SPMDControlTag, MPI_COMM_WORLD, &request);
+    MPI_Isend(const_cast<int*>(&done), 1, MPI_INT, partner, noahmp_spmd::SPMDControlTag, MPI_COMM_WORLD, &request);
     MPI_Wait(&request, MPI_STATUS_IGNORE);
 }
 
@@ -363,8 +345,8 @@ NOAHMP::SendSPMDMetadata () const
     }
 
     MPI_Request requests[2];
-    MPI_Isend(const_cast<int*>(&nlocal), 1, MPI_INT, partner, SPMDMetaSizeTag, MPI_COMM_WORLD, &requests[0]);
-    MPI_Isend(bounds.data(), static_cast<int>(bounds.size()), MPI_INT, partner, SPMDMetaBoxesTag, MPI_COMM_WORLD, &requests[1]);
+    MPI_Isend(const_cast<int*>(&nlocal), 1, MPI_INT, partner, noahmp_spmd::SPMDMetaSizeTag, MPI_COMM_WORLD, &requests[0]);
+    MPI_Isend(bounds.data(), static_cast<int>(bounds.size()), MPI_INT, partner, noahmp_spmd::SPMDMetaBoxesTag, MPI_COMM_WORLD, &requests[1]);
     MPI_Waitall(2, requests, MPI_STATUSES_IGNORE);
 }
 
@@ -382,12 +364,12 @@ NOAHMP::SendSPMDInput ()
 
     std::vector<MPI_Request> requests(1 + nlocal);
     int ireq = 0;
-    MPI_Isend(const_cast<int*>(&keep_running), 1, MPI_INT, partner, SPMDControlTag, MPI_COMM_WORLD, &requests[ireq++]);
+    MPI_Isend(const_cast<int*>(&keep_running), 1, MPI_INT, partner, noahmp_spmd::SPMDControlTag, MPI_COMM_WORLD, &requests[ireq++]);
     for (MFIter mfi(*mf_noah_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
         auto const& fab = (*mf_noah_input)[mfi];
         MPI_Isend(fab.dataPtr(), static_cast<int>(fab.size()),
                   ParallelDescriptor::Mpi_typemap<Real>::type(),
-                  partner, SPMDInputTag, MPI_COMM_WORLD, &requests[ireq++]);
+                  partner, noahmp_spmd::SPMDInputTag, MPI_COMM_WORLD, &requests[ireq++]);
     }
     MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
 }
@@ -404,7 +386,7 @@ NOAHMP::ReceiveSPMDOutput ()
         auto& fab = (*mf_noah_output)[mfi];
         MPI_Irecv(fab.dataPtr(), static_cast<int>(fab.size()),
                   ParallelDescriptor::Mpi_typemap<Real>::type(),
-                  partner, SPMDOutputTag, MPI_COMM_WORLD, &requests[ireq++]);
+                  partner, noahmp_spmd::SPMDOutputTag, MPI_COMM_WORLD, &requests[ireq++]);
     }
     MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
 }
@@ -663,129 +645,4 @@ NOAHMP::Advance_With_State (const int& lev,
                       << std::endl;
 };
 
-#ifdef ERF_USE_NOAHMP_SPMD
-void
-NOAHMP::RunSPMDService ()
-{
-    int myproc_world = 0;
-    MPI_Comm_rank(MPI_COMM_WORLD, &myproc_world);
-
-    MPI_Comm comm_sub;
-    MPI_Comm_split(MPI_COMM_WORLD, s_is_erf_rank ? 0 : 1, myproc_world, &comm_sub);
-
-    int nblocks = 0;
-    MPI_Status status;
-    MPI_Recv(&nblocks, 1, MPI_INT, MPI_ANY_SOURCE, SPMDMetaSizeTag, MPI_COMM_WORLD, &status);
-    const int partner = status.MPI_SOURCE;
-
-    std::vector<int> bounds(4 * nblocks);
-    MPI_Recv(bounds.data(), static_cast<int>(bounds.size()), MPI_INT, partner, SPMDMetaBoxesTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    std::vector<NoahServiceBlock> blocks(nblocks);
-    for (int ib = 0; ib < nblocks; ++ib) {
-        auto& block = blocks[ib];
-        block.ilo = bounds[4*ib+0];
-        block.jlo = bounds[4*ib+1];
-        block.ihi = bounds[4*ib+2];
-        block.jhi = bounds[4*ib+3];
-
-        const int nx = block.ihi - block.ilo + 1;
-        const int ny = block.jhi - block.jlo + 1;
-        block.input.resize(nx * ny * NoahmpInputComp::NumComps);
-        block.output.resize(nx * ny * NoahmpOutputComp::NumComps);
-
-        NoahmpIO_type& noahmpio = block.io;
-        noahmpio.blkid = ib;
-        noahmpio.level = 0;
-        noahmpio.ScalarInitDefault();
-        noahmpio.rank = myproc_world;
-        noahmpio.comm = MPI_Comm_c2f(comm_sub);
-        noahmpio.ReadNamelist();
-        noahmpio.ReadLandHeader();
-
-        noahmpio.xstart = block.ilo;
-        noahmpio.xend   = block.ihi;
-        noahmpio.ystart = block.jlo;
-        noahmpio.yend   = block.jhi;
-        noahmpio.ids = noahmpio.xstart;
-        noahmpio.ide = noahmpio.xend;
-        noahmpio.jds = noahmpio.ystart;
-        noahmpio.jde = noahmpio.yend;
-        noahmpio.kds = 1;
-        noahmpio.kde = 2;
-        noahmpio.its = noahmpio.xstart;
-        noahmpio.ite = noahmpio.xend;
-        noahmpio.jts = noahmpio.ystart;
-        noahmpio.jte = noahmpio.yend;
-        noahmpio.kts = 1;
-        noahmpio.kte = 2;
-        noahmpio.ims = noahmpio.xstart;
-        noahmpio.ime = noahmpio.xend;
-        noahmpio.jms = noahmpio.ystart;
-        noahmpio.jme = noahmpio.yend;
-        noahmpio.kms = 1;
-        noahmpio.kme = 2;
-
-        noahmpio.VarInitDefault();
-        noahmpio.ReadTable();
-        noahmpio.ReadLandMain();
-        noahmpio.InitMain();
-    }
-
-    int done = 0;
-    int step = 0;
-    while (true) {
-        MPI_Recv(&done, 1, MPI_INT, partner, SPMDControlTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (done != 0) {
-            break;
-        }
-
-        for (auto& block : blocks) {
-            MPI_Recv(block.input.data(), static_cast<int>(block.input.size()),
-                     ParallelDescriptor::Mpi_typemap<Real>::type(),
-                     partner, SPMDInputTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            NoahmpIO_type& noahmpio = block.io;
-            const int nx = block.ihi - block.ilo + 1;
-            for (int j = block.jlo; j <= block.jhi; ++j) {
-                for (int i = block.ilo; i <= block.ihi; ++i) {
-                    noahmpio.U_PHY(i,1,j)   = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::u_phy)];
-                    noahmpio.V_PHY(i,1,j)   = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::v_phy)];
-                    noahmpio.T_PHY(i,1,j)   = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::t_phy)];
-                    noahmpio.QV_CURR(i,1,j) = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::qv_curr)];
-                    noahmpio.P8W(i,1,j)     = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::p8w)];
-                    noahmpio.SWDOWN(i,j)    = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::swdown)];
-                    noahmpio.GLW(i,j)       = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::glw)];
-                    noahmpio.COSZEN(i,j)    = block.input[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::coszen)];
-                }
-            }
-
-            noahmpio.itimestep = step + 1;
-            noahmpio.DriverMain();
-
-            for (int j = block.jlo; j <= block.jhi; ++j) {
-                for (int i = block.ilo; i <= block.ihi; ++i) {
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::hfx)] = noahmpio.HFX(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::lh)] = noahmpio.LH(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tau_ew)] = noahmpio.TAU_EW(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tau_ns)] = noahmpio.TAU_NS(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tsk)] = noahmpio.TSK(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::emiss)] = noahmpio.EMISS(i,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdir_vis)] = noahmpio.ALBSFCDIRXY(i,1,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdir_nir)] = noahmpio.ALBSFCDIRXY(i,2,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdif_vis)] = noahmpio.ALBSFCDIFXY(i,1,j);
-                    block.output[slab_index(i,j,block.ilo,block.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdif_nir)] = noahmpio.ALBSFCDIFXY(i,2,j);
-                }
-            }
-
-            MPI_Send(block.output.data(), static_cast<int>(block.output.size()),
-                     ParallelDescriptor::Mpi_typemap<Real>::type(),
-                     partner, SPMDOutputTag, MPI_COMM_WORLD);
-        }
-
-        ++step;
-    }
-
-    MPI_Comm_free(&comm_sub);
-}
 #endif
