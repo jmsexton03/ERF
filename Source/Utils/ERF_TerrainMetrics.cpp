@@ -539,12 +539,27 @@ make_J (const Geometry& geom,
 #endif
     for ( MFIter mfi(detJ_cc, TilingIfNotGPU()); mfi.isValid(); ++mfi )
     {
+        // 1. What we WANT to compute (the grown cell-centered tilebox)
         Box gbx = mfi.growntilebox(ngrow);
+
         if (gbx.smallEnd(2) < domlo_z) {
             gbx.setSmall(2,domlo_z);
         }
+
+        // 2. What we CAN safely compute based on the allocated nodal memory
+        // mfi.fabbox() returns the actual physical memory allocation of the Fab
+        Box allocated_nodal_box = z_phys_nd[mfi].box();
+        Box safe_cc_box = amrex::enclosedCells(allocated_nodal_box);
+
+        // 3. The AMReX magic: Intersect the two boxes
+        gbx &= safe_cc_box;
+
+        // Safety check in case the intersection is empty
+        if (gbx.isEmpty()) continue;
+
         Array4<Real const> z_nd = z_phys_nd.const_array(mfi);
         Array4<Real      > detJ = detJ_cc.array(mfi);
+
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
            detJ(i, j, k) = Real(.25) * dzInv * (
                    z_nd(i,j,k+1) + z_nd(i+1,j,k+1) + z_nd(i,j+1,k+1) + z_nd(i+1,j+1,k+1)
@@ -583,12 +598,21 @@ make_areas (const Geometry& geom,
     for ( MFIter mfi(ax, TilingIfNotGPU()); mfi.isValid(); ++mfi )
     {
         Box gbx = mfi.growntilebox(ax.nGrow());
-        if (gbx.smallEnd(2) < domlo_z) {
-            gbx.setSmall(2,domlo_z);
-        }
+        if (gbx.smallEnd(2) < domlo_z) gbx.setSmall(2,domlo_z);
+
+        // ax is face-centered in X. So it needs nodes in Y and Z, but NOT X.
+        // Convert the full nodal box to cell-centered ONLY in the Y and Z directions (dirs 1 and 2).
+        Box safe_ax_box = z_phys_nd[mfi].box();
+        safe_ax_box = amrex::enclosedCells(safe_ax_box, 1); // Shrink Y
+        safe_ax_box = amrex::enclosedCells(safe_ax_box, 2); // Shrink Z
+
+        gbx &= safe_ax_box;
+
+        if (gbx.isEmpty()) continue;
 
         Array4<Real const> z_nd = z_phys_nd.const_array(mfi);
         Array4<Real      > ax_arr = ax.array(mfi);
+
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
                ax_arr(i, j, k) = Real(.5) * dzInv * (
                        z_nd(i,j,k+1) + z_nd(i,j+1,k+1) - z_nd(i,j,k) - z_nd(i,j+1,k));
@@ -604,15 +628,25 @@ make_areas (const Geometry& geom,
     for ( MFIter mfi(ay, TilingIfNotGPU()); mfi.isValid(); ++mfi )
     {
         Box gbx = mfi.growntilebox(ay.nGrow());
-        if (gbx.smallEnd(2) < domlo_z) {
-            gbx.setSmall(2,domlo_z);
-        }
+        if (gbx.smallEnd(2) < domlo_z) gbx.setSmall(2,domlo_z);
+
+        // ay is face-centered in Y. So it needs nodes in X and Z, but NOT Y.
+        // Convert the full nodal box to cell-centered ONLY in the X and Z directions (dirs 0 and 2).
+        Box safe_ay_box = z_phys_nd[mfi].box();
+        safe_ay_box = amrex::enclosedCells(safe_ay_box, 0); // Shrink X
+        safe_ay_box = amrex::enclosedCells(safe_ay_box, 2); // Shrink Z
+
+        gbx &= safe_ay_box;
+
+        if (gbx.isEmpty()) continue;
 
         Array4<Real const> z_nd = z_phys_nd.const_array(mfi);
         Array4<Real      > ay_arr = ay.array(mfi);
+
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-               ay_arr(i, j, k) = Real(.5) * dzInv * (
-                       z_nd(i,j,k+1) + z_nd(i+1,j,k+1) - z_nd(i,j,k) - z_nd(i+1,j,k));
+            // Safe because gbx has been clamped to where we have full X and Z nodes
+            ay_arr(i, j, k) = Real(.5) * dzInv * (
+                    z_nd(i,j,k+1) + z_nd(i+1,j,k+1) - z_nd(i,j,k) - z_nd(i+1,j,k));
         });
     }
 
@@ -635,6 +669,13 @@ make_zcc (const Geometry& geom,
     for ( MFIter mfi(z_phys_cc, TilingIfNotGPU()); mfi.isValid(); ++mfi )
     {
         Box gbx = mfi.growntilebox();
+
+        Box allocated_nodal_box = z_phys_nd[mfi].box();
+        Box safe_cc_box = amrex::enclosedCells(allocated_nodal_box);
+        gbx &= safe_cc_box;
+
+        if (gbx.isEmpty()) continue;
+
         Array4<Real const> z_nd = z_phys_nd.const_array(mfi);
         Array4<Real      > z_cc = z_phys_cc.array(mfi);
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
