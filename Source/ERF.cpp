@@ -22,9 +22,6 @@
 #include "ERF_TerrainMetrics.H"
 #include "ERF_EBIFTerrain.H"
 #include "ERF_HurricaneDiagnostics.H"
-#ifdef ERF_USE_WW3_COUPLING
-#include <AMReX_MPMD.H>
-#endif
 
 #ifdef ERF_USE_NETCDF
 #include "ERF_ReadFromWRFInput.H"
