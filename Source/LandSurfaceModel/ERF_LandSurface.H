@@ -56,12 +56,12 @@ public:
              amrex::MultiFab& yvel_in,
              amrex::MultiFab* hfx3_out,
              amrex::MultiFab* qfx3_out,
-             const amrex::Real& elapsed_time,
+             const amrex::Real& time,
              const amrex::Real& dt_advance,
              const int& nstep)
     {
-        m_lsm_model[lev]->Advance_With_State(lev, cons_in, xvel_in, yvel_in, hfx3_out, qfx3_out,
-                                             elapsed_time, dt_advance, nstep);
+        m_lsm_model[lev]->Advance_With_State(lev, cons_in, xvel_in, yvel_in,
+                                             hfx3_out, qfx3_out, time, dt_advance, nstep);
     }
 
     void

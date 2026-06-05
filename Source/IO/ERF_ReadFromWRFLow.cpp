@@ -42,22 +42,21 @@ read_times_from_wrflow (const std::string& nc_low_file,
 
         ntimes = array_ts[0].get_vshape()[0];
 
-        auto dateStrLen = array_ts[0].get_vshape()[1];
-        Print() << "  wrflow Times shape = (" << ntimes << ", " << dateStrLen << ")" << std::endl;
-        char timeStamps[ntimes][dateStrLen];
+        Vector<std::string> timeStamps;
+        timeStamps.reserve(ntimes);
 
-        // Fill up the characters read
-        int str_len = static_cast<int>(dateStrLen);
-        for (int nt(0); nt < ntimes; nt++) {
-            for (int dateStrCt(0); dateStrCt < str_len; dateStrCt++) {
-                auto n = nt*dateStrLen + dateStrCt;
-                timeStamps[nt][dateStrCt] = *(array_ts[0].get_data() + n);
-            }
+        const char* data = array_ts[0].get_data();
+        auto dateStrLen  = array_ts[0].get_vshape()[1];
+
+        for (int nt = 0; nt < ntimes; ++nt) {
+            const char* begin = data + nt * dateStrLen;
+            timeStamps.emplace_back(begin, begin + dateStrLen);
         }
+
 
         Vector<std::time_t> epochTimes;
         for (int nt(0); nt < ntimes; nt++) {
-            std::string date(&timeStamps[nt][0], &timeStamps[nt][dateStrLen-1]+1);
+            std::string date = timeStamps[nt];
             auto epochTime = getEpochTime(date, dateTimeFormat);
             Print() << "  wrflow datetime " << nt << " : " << date << " " << epochTime << std::endl;
             epochTimes.push_back(epochTime);
@@ -65,7 +64,7 @@ read_times_from_wrflow (const std::string& nc_low_file,
             if (nt == 1) {
                 timeInterval = static_cast<Real>(epochTimes[1] - epochTimes[0]);
             } else if (nt >= 1) {
-              AMREX_ALWAYS_ASSERT(static_cast<Real>(epochTimes[nt] - epochTimes[nt-1]) == timeInterval);
+                AMREX_ALWAYS_ASSERT(static_cast<Real>(epochTimes[nt] - epochTimes[nt-1]) == timeInterval);
             }
         }
         start_low_time = static_cast<Real>(epochTimes[0]);
@@ -82,14 +81,6 @@ read_times_from_wrflow (const std::string& nc_low_file,
 
     // Make sure all processors know timeInterval
     ParallelDescriptor::Bcast(&timeInterval,1,ioproc);
-
-    if (ParallelDescriptor::IOProcessor()) {
-        Print() << "  wrflow start_low_time = " << start_low_time
-                << ", final_low_time = " << final_low_time
-                << ", interval = " << timeInterval
-                << ", ntimes = " << ntimes
-                << std::endl;
-    }
 
     // Return the number of seconds between the boundary plane data
     return timeInterval;
@@ -129,16 +120,6 @@ read_from_wrflow (const int itime, const std::string& nc_low_file, const Box& do
         for (auto &istat:success) {
             AMREX_ALWAYS_ASSERT(istat==1);
         }
-
-        Print() << "  wrflow slice " << itime
-                << " variable=" << nc_var_names[0]
-                << " shape=(" << tslice[0].get_vshape()[0] << ","
-                << tslice[0].get_vshape()[1] << ","
-                << tslice[0].get_vshape()[2] << ")"
-                << " target box lo=(" << pbx_zlo.smallEnd(0) << ","
-                << pbx_zlo.smallEnd(1) << "," << pbx_zlo.smallEnd(2) << ") hi=("
-                << pbx_zlo.bigEnd(0) << "," << pbx_zlo.bigEnd(1) << "," << pbx_zlo.bigEnd(2) << ")"
-                << std::endl;
     }
 
     Arena* Arena_Used = The_Arena();
@@ -160,19 +141,6 @@ read_from_wrflow (const int itime, const std::string& nc_low_file, const Box& do
 
             // dims: (Time, south_north, west_east)
             int ns2 = tslice[iv].get_vshape()[2];
-
-            Print() << "  wrflow fill iv=" << iv
-                    << " name=" << nc_var_names[iv]
-                    << " box lo=(" << low_data_zlo[itime][iv].box().smallEnd(0) << ","
-                    << low_data_zlo[itime][iv].box().smallEnd(1) << ","
-                    << low_data_zlo[itime][iv].box().smallEnd(2) << ") hi=("
-                    << low_data_zlo[itime][iv].box().bigEnd(0) << ","
-                    << low_data_zlo[itime][iv].box().bigEnd(1) << ","
-                    << low_data_zlo[itime][iv].box().bigEnd(2) << ")"
-                    << " shape=(" << tslice[iv].get_vshape()[0] << ","
-                    << tslice[iv].get_vshape()[1] << ","
-                    << tslice[iv].get_vshape()[2] << ")"
-                    << std::endl;
 
             long num_pts  = low_data_zlo[itime][iv].box().numPts();
             int ioff      = low_data_zlo[itime][iv].smallEnd()[0];
