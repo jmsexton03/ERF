@@ -651,5 +651,3 @@ NOAHMP::Advance_With_State (const int& lev,
                       << "] NOAHMP::Advance_With_State end step=" << nstep+1
                       << std::endl;
 };
-
-#endif
