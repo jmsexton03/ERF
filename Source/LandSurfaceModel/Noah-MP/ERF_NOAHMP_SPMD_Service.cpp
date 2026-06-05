@@ -124,7 +124,7 @@ void RunNOAHMPSPMDService()
             }
 
             // Run Physics
-            noah.itimestep = step + 1;
+            noah.itimestep += 1;
             noah.DriverMain();
 
             for (int j = b.jlo; j <= b.jhi; ++j) {

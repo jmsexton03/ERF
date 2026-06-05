@@ -296,7 +296,9 @@ NOAHMP::Init (const int& lev,
                           << "] NOAHMP::Init block " << idb << " completed" << std::endl;
     }
 
-  Print() << "Noah-MP initialization completed" << std::endl;
+    AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
+
+    Print() << "Noah-MP initialization completed" << std::endl;
 
 };
 
@@ -413,7 +415,7 @@ NOAHMP::Advance_SPMD_Only (const int& nstep)
             noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
         });
 
-        noahmpio->itimestep = nstep+1;
+        noahmpio->itimestep += 1;
         noahmpio->DriverMain();
 
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
@@ -440,9 +442,14 @@ NOAHMP::Advance_With_State (const int& lev,
                             MultiFab& yvel_in,
                             MultiFab* /*hfx3_out*/,
                             MultiFab* /*qfx3_out*/,
+                            const Real& elapsed_time,
                             const Real& dt,
                             const int& nstep)
 {
+    Real noah_time = static_cast<Real>(noahmpio_vect[0].itimestep-1) *
+                     static_cast<Real>(noahmpio_vect[0].DTBL);
+    if (elapsed_time < noah_time) { return; }
+
     Box domain = m_geom.Domain();
 
     Print () << "Noah-MP driver started at time step: " << nstep+1 << std::endl;
@@ -531,7 +538,7 @@ NOAHMP::Advance_With_State (const int& lev,
             noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
         });
 
-        noahmpio->itimestep = nstep+1;
+        noahmpio->itimestep += 1;
         amrex::AllPrint() << "[rank " << amrex::ParallelDescriptor::MyProc()
                           << "] NOAHMP::Advance_With_State block " << idb
                           << " calling DriverMain locally" << std::endl;
