@@ -1255,9 +1255,9 @@ compute_terrain_top_and_bottom (const MultiFab& mf_PH,
 
         // For the top boundary
         Box Fab2dBox_hi, Fab2dBox_hi_m1;
-        if (nodal_box.bigEnd(2) == khi) {
-            Fab2dBox_hi    = makeSlab(nodal_box,2,khi  );
-            Fab2dBox_hi_m1 = makeSlab(nodal_box,2,khi-1);
+        if (vbx.bigEnd(2) == khi) {
+            Fab2dBox_hi    = makeSlab(vbx,2,khi  );
+            Fab2dBox_hi_m1 = makeSlab(vbx,2,khi-1);
         }
 
         // For the bottom boundary
@@ -1314,7 +1314,6 @@ compute_terrain_top_and_bottom (const MultiFab& mf_PH,
         });
     } // mfi
 
-    Gpu::streamSynchronize();
     Gpu::copy(Gpu::deviceToHost, Min_d.begin(), Min_d.end(), Min_h.begin());
     Gpu::copy(Gpu::deviceToHost, Max_d.begin(), Max_d.end(), Max_h.begin());
 
@@ -1428,13 +1427,8 @@ init_terrain_from_wrfinput (int /*lev*/,
         });
 
         // Sanity check
+        Print() << "Verifying grid integrity" << std::endl;
         const Box& vbox = mfi.validbox();
-        Print() << "  [rank " << ParallelDescriptor::MyProc() << "] Verifying grid integrity"
-                << " for validbox lo=("
-                << vbox.smallEnd(0) << "," << vbox.smallEnd(1) << "," << vbox.smallEnd(2) << ") hi=("
-                << vbox.bigEnd(0)   << "," << vbox.bigEnd(1)   << "," << vbox.bigEnd(2)   << ")"
-                << " klo=" << klo << " khi=" << khi
-                << std::endl;
         if (vbox.smallEnd(2) == klo) {
             Box z_surf_faces = makeSlab(vbox, 2, klo);
             ParallelFor(z_surf_faces, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
