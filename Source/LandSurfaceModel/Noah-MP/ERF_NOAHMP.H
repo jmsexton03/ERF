@@ -173,7 +173,7 @@ public:
     }
 
 #ifdef ERF_USE_NOAHMP_SPMD
-    static void ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank);
+    static void ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank, int partner_world_rank);
     static void ShutdownSPMDService ();
 #endif
 

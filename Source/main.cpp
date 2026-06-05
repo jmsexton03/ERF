@@ -207,7 +207,37 @@ int main (int argc, char* argv[])
     }
 
     // Configure the SPMD service
-    NOAHMP::ConfigureSPMD(global_erf_ranks, global_noah_ranks, is_erf_rank);
+    MPI_Comm node_comm;
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, myproc, MPI_INFO_NULL, &node_comm);
+
+    int my_node_rank, node_size;
+    MPI_Comm_rank(node_comm, &my_node_rank);
+    MPI_Comm_size(node_comm, &node_size);
+
+    // Gather all world ranks of NoahMP processes ON THIS NODE
+    int local_noah_id = (!is_erf_rank) ? myproc : -1;
+    std::vector<int> node_noah_ranks(node_size);
+    MPI_Allgather(&local_noah_id, 1, MPI_INT, node_noah_ranks.data(), 1, MPI_INT, node_comm);
+
+    std::vector<int> valid_node_noah_ranks;
+    for (int r : node_noah_ranks) {
+        if (r != -1) valid_node_noah_ranks.push_back(r);
+    }
+
+    if (valid_node_noah_ranks.empty()) {
+        amrex::Abort("Error: No NoahMP rank found on this physical node! Check MPI task layout.");
+    }
+
+    // ERF assigns itself to an on-node NoahMP rank (round-robin on the node)
+    // NoahMP service uses MPI_ANY_SOURCE, so it doesn't need a specific partner (-1)
+    int partner_world_rank = -1;
+    if (is_erf_rank) {
+        partner_world_rank = valid_node_noah_ranks[my_node_rank % valid_node_noah_ranks.size()];
+    }
+    MPI_Comm_free(&node_comm);
+
+    NOAHMP::ConfigureSPMD(global_erf_ranks, global_noah_ranks, is_erf_rank, partner_world_rank);
+
 
     if (is_erf_rank) {
         // Strip off extra arguments after '--' so AMReX doesn't parse them

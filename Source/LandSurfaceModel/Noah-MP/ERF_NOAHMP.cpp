@@ -21,45 +21,7 @@ int s_n_erf_ranks = 0;
 int s_n_noah_ranks = 0;
 bool s_is_erf_rank = true;
 bool s_metadata_sent = false;
-
-int
-partner_world_rank ()
-{
-    int myproc_world = 0;
-    int nprocs_world = 1;
-    MPI_Comm_rank(MPI_COMM_WORLD, &myproc_world);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
-
-    int myproc = ParallelDescriptor::MyProc();
-    int nprocs = ParallelDescriptor::NProcs();
-    int nprocs_other = nprocs_world - nprocs;
-
-    MPI_Group group_world, group;
-    MPI_Comm_group(MPI_COMM_WORLD, &group_world);
-    MPI_Comm_group(ParallelDescriptor::Communicator(), &group);
-
-    Vector<int> ranks(nprocs);
-    Vector<int> ranks_world(nprocs);
-    std::iota(ranks.begin(), ranks.end(), 0);
-    MPI_Group_translate_ranks(group, nprocs, ranks.data(), group_world, ranks_world.data());
-
-    Vector<int> ranks_other;
-    ranks_other.reserve(nprocs_other);
-    {
-        std::unordered_set<int> ranks_world_set(ranks_world.begin(), ranks_world.end());
-        for (int i = 0; i < nprocs_world; ++i) {
-            if (ranks_world_set.find(i) == ranks_world_set.end()) {
-                ranks_other.push_back(i);
-            }
-        }
-    }
-
-    MPI_Group_free(&group_world);
-    MPI_Group_free(&group);
-
-    AMREX_ALWAYS_ASSERT(myproc < static_cast<int>(ranks_other.size()));
-    return ranks_other[myproc];
-}
+static int s_partner_world_rank = -1;
 }
 #endif
 
@@ -312,19 +274,20 @@ NOAHMP::Plot_Landfile(const int& nstep)
 
 #ifdef ERF_USE_NOAHMP_SPMD
 void
-NOAHMP::ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank)
+NOAHMP::ConfigureSPMD (int n_erf_ranks, int n_noah_ranks, bool is_erf_rank, int partner_world_rank)
 {
     s_n_erf_ranks = n_erf_ranks;
     s_n_noah_ranks = n_noah_ranks;
     s_is_erf_rank = is_erf_rank;
     s_metadata_sent = false;
+    s_partner_world_rank = partner_world_rank;
 }
 
 void
 NOAHMP::ShutdownSPMDService ()
 {
     const int done = 1;
-    const int partner = partner_world_rank();
+    const int partner = s_partner_world_rank;
     MPI_Request request;
     MPI_Isend(const_cast<int*>(&done), 1, MPI_INT, partner, noahmp_spmd::SPMDControlTag, MPI_COMM_WORLD, &request);
     MPI_Wait(&request, MPI_STATUS_IGNORE);
@@ -333,7 +296,7 @@ NOAHMP::ShutdownSPMDService ()
 void
 NOAHMP::SendSPMDMetadata () const
 {
-    const int partner = partner_world_rank();
+    const int partner = s_partner_world_rank;
     const int nlocal = mf_noah_input->local_size();
 
     std::vector<int> bounds;
@@ -361,7 +324,7 @@ NOAHMP::SendSPMDInput ()
     }
 
     const int keep_running = 0;
-    const int partner = partner_world_rank();
+    const int partner = s_partner_world_rank;
     const int nlocal = mf_noah_input->local_size();
 
     std::vector<MPI_Request> requests(1 + nlocal);
@@ -379,7 +342,7 @@ NOAHMP::SendSPMDInput ()
 void
 NOAHMP::ReceiveSPMDOutput ()
 {
-    const int partner = partner_world_rank();
+    const int partner = s_partner_world_rank;
     const int nlocal = mf_noah_output->local_size();
 
     std::vector<MPI_Request> requests(nlocal);
