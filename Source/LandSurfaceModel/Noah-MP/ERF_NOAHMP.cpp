@@ -7,6 +7,7 @@
 #include <AMReX_ParallelDescriptor.H>
 
 #include <ERF_NOAHMP.H>
+#include <ERF_NOAHMP_IO_Init.H>
 #include <ERF_Constants.H>
 #include <ERF_EOS.H>
 
@@ -106,115 +107,33 @@ NOAHMP::Init (const int& lev,
 
     Print() << "Noah-MP initialization started" << std::endl;
 
-    // Set noahmpio_vect to the size of local blocks (boxes)
-    noahmpio_vect.resize(cons_in.local_size(), lev);
-
-    // Allocate pinned buffer space for all the boxes
-    noahmp_input_tmp.resize(cons_in.local_size());
-    noahmp_output_tmp.resize(cons_in.local_size());
+    // Build 2D tiles in exactly the same MFIter order as before
+    std::vector<NoahTile2D> tiles;
+    tiles.reserve(cons_in.local_size());
 
     int klo = domain.smallEnd(2);
+    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
+      Box bx = mfi.tilebox();
+      if (bx.smallEnd(2) != klo) { continue; }
+      bx.makeSlab(2, klo);
 
-    // Iterate over multifab and noahmpio object together. Multifabs is
-    // used to extract size of blocks and set bounds for noahmpio objects.
-    int idb = 0;
-    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
-
-        // Get bounds for the tile
-        Box bx = mfi.tilebox();
-
-        // Check if tile is at the lower boundary in lower z direction
-        if (bx.smallEnd(2) != klo) { continue; }
-
-        // Make a slab
-        bx.makeSlab(2,klo);
-
-        // Allocate pinned buffers for each box
-        noahmp_input_tmp[idb]  = std::make_unique<FArrayBox>(bx, NoahmpInputComp::NumComps , The_Pinned_Arena());
-        noahmp_output_tmp[idb] = std::make_unique<FArrayBox>(bx, NoahmpOutputComp::NumComps, The_Pinned_Arena());
-
-        // Get reference to the noahmpio object
-        NoahmpIO_type* noahmpio = &noahmpio_vect[idb];
-
-        // Pass idb context to noahmpio
-        noahmpio->blkid = idb;
-
-        // Pass level context to noahmpio
-        noahmpio->level = lev;
-
-        // Initialize scalar values
-        noahmpio->ScalarInitDefault();
-
-        // Store the rank of process for noahmp
-        noahmpio->rank = ParallelDescriptor::MyProc();
-
-        // Store parallel communicator for noahmp
-        noahmpio->comm = MPI_Comm_c2f(ParallelDescriptor::Communicator());
-
-        // Read namelist.erf file. This file contains
-        // noahmpio specific parameters and is read by
-        // the Fortran side of the implementation.
-        noahmpio->ReadNamelist();
-
-        // Read the headers from the NetCDF land file. This is also
-        // implemented on the Fortran side of things currently.
-        noahmpio->ReadLandHeader();
-
-        // Extract tile bounds and set them to their corresponding
-        // noahmpio variables. At present we will set all the variables
-        // corresponding to domain, memory, and tile to the same bounds.
-        // This will be changed later if we want to do special memory
-        // management for expensive use cases.
-        noahmpio->xstart = bx.smallEnd(0);
-        noahmpio->xend   = bx.bigEnd(0);
-        noahmpio->ystart = bx.smallEnd(1);
-        noahmpio->yend   = bx.bigEnd(1);
-
-        // Domain bounds
-        noahmpio->ids = noahmpio->xstart;
-        noahmpio->ide = noahmpio->xend;
-        noahmpio->jds = noahmpio->ystart;
-        noahmpio->jde = noahmpio->yend;
-        noahmpio->kds = 1;
-        noahmpio->kde = 2;
-
-        // Tile bounds
-        noahmpio->its = noahmpio->xstart;
-        noahmpio->ite = noahmpio->xend;
-        noahmpio->jts = noahmpio->ystart;
-        noahmpio->jte = noahmpio->yend;
-        noahmpio->kts = 1;
-        noahmpio->kte = 2;
-
-        // Memory bounds
-        noahmpio->ims = noahmpio->xstart;
-        noahmpio->ime = noahmpio->xend;
-        noahmpio->jms = noahmpio->ystart;
-        noahmpio->jme = noahmpio->yend;
-        noahmpio->kms = 1;
-        noahmpio->kme = 2;
-
-        // This procedure allocates memory in Fortran for IO variables
-        // using bounds that are set above and read from namelist.erf
-        // and headers from the NetCDF land file
-        noahmpio->VarInitDefault();
-
-        // This reads NoahmpTable.TBL file which is another input file
-        // we need to set some IO variables.
-        noahmpio->ReadTable();
-
-        // Read and initialize data from the NetCDF land file.
-        noahmpio->ReadLandMain();
-
-        // Compute additional initial values that were not supplied
-        // by the NetCDF land file.
-        noahmpio->InitMain();
-
-        // Write initial plotfile for land with the tag 0
-        Print() << "Noah-MP writing lnd.nc file at lev: " << lev << std::endl;
-        noahmpio->WriteLand(0);
+      tiles.push_back(NoahTile2D{
+          bx.smallEnd(0), bx.smallEnd(1),
+          bx.bigEnd(0),   bx.bigEnd(1)
+        });
     }
-    AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
+
+    // Optional safety: mirror prior expectation that we have work
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!tiles.empty(),
+        "Noah-MP Init: no bottom-slab tiles found for this rank");
+
+    // Single helper call replaces manual noahmpio setup loop
+    InitNoahmpIOOnly(
+        noahmpio_vect,
+        lev,
+        tiles,
+        ParallelDescriptor::Communicator(),
+        /*write_land0=*/true);
 
     Print() << "Noah-MP initialization completed" << std::endl;
 

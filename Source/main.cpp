@@ -1,20 +1,45 @@
+#include <cstring>
 #include <iostream>
+#include <sstream>
 
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_ParmParse.H>
 
 #include "ERF.H"
 #include "ERF_InputsName.H"
 
-#ifdef ERF_USE_WW3_COUPLING
+#if defined(ERF_USE_WW3_COUPLING) || defined(ERF_USE_NOAHMP_SPMD)
 #include <mpi.h>
+#endif
+
+#ifdef ERF_USE_WW3_COUPLING
 #include <AMReX_MPMD.H>
+#endif
+
+#ifdef ERF_USE_NOAHMP_SPMD
+#include <ERF_NOAHMP.H>
+#include <ERF_NOAHMP_SPMD_Shared.H>
 #endif
 
 std::string inputs_name;
 
 using namespace amrex;
+
+namespace {
+
+int find_dashdash (int argc, char* argv[])
+{
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--") == 0) {
+            return i;
+        }
+    }
+    return argc;
+}
+
+}
 
 /**
  * Function to set the refine_grid_layout flags to (1,1,0) by default
@@ -55,17 +80,16 @@ void add_par () {
 */
 int main (int argc, char* argv[])
 {
-
-auto finalize_mpi_and_return = [](int code) {
+    auto finalize_mpi_and_return = [](int code) {
 #ifdef AMREX_USE_MPI
 #ifdef ERF_USE_WW3_COUPLING
-    amrex::MPMD::Finalize();
-+#else
-    MPI_Finalize();
+        amrex::MPMD::Finalize();
+#else
+        MPI_Finalize();
 #endif
 #endif
-return code;
-};
+        return code;
+    };
 
 #if defined(AMREX_MPI_THREAD_MULTIPLE)
     int requested = MPI_THREAD_MULTIPLE;
@@ -78,9 +102,8 @@ return code;
     if (argc < 2) {
         // Print usage and exit with error code if no input file was provided.
         ERF::print_usage(MPI_COMM_WORLD, std::cout);
-        ERF::print_error(
-            MPI_COMM_WORLD, "No input file provided. Exiting!!");
-        return 1;
+        ERF::print_error(MPI_COMM_WORLD, "No input file provided. Exiting!!");
+        return finalize_mpi_and_return(1);
     }
 
     // Look for "-h" or "--help" flag and print usage
@@ -89,7 +112,7 @@ return code;
         if ((param == "--help") || (param == "-h") || (param == "--usage")) {
             ERF::print_banner(MPI_COMM_WORLD, std::cout);
             ERF::print_usage(MPI_COMM_WORLD, std::cout);
-            return 0;
+            return finalize_mpi_and_return(0);
         }
     }
 
@@ -112,65 +135,198 @@ return code;
         return finalize_mpi_and_return(1);
     }
 
-  //  print_banner(MPI_COMM_WORLD, std::cout);
-    // Check to see if the command line contains --describe
-    if (argc >= 2) {
-        for (auto i = 1; i < argc; i++) {
-            if (std::string(argv[i]) == "--describe") {
-                ERF::writeBuildInfo(std::cout);
-                return 0;
-            }
+    // Save the inputs file name for later.
+    // Must be before SPMD split so ERF sub-ranks have it available.
+    if (!strchr(argv[1], '=')) {
+        inputs_name = argv[1];
+    }
+
+    int myproc_world = 0;
+    int nprocs_world = 1;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myproc_world);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
+
+#ifdef ERF_USE_NOAHMP_SPMD
+    // ---------------------------------------------------------
+    // Node-aware SPMD Communicator Splitting
+    // ---------------------------------------------------------
+
+    // 1. Identify ranks on the same physical node
+    MPI_Comm local_comm;
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local_comm);
+
+    int local_rank = -1;
+    int local_size = -1;
+    MPI_Comm_rank(local_comm, &local_rank);
+    MPI_Comm_size(local_comm, &local_size);
+    MPI_Comm_free(&local_comm);
+
+    // 2. Define splitting policy: default 4 ERF ranks per node (for 4 GPUs),
+    //    overridable via command line "-- N"
+    int erf_ranks_per_node = 4;
+    {
+        const int dd = find_dashdash(argc, argv);
+        if (dd < argc - 1) {
+            std::istringstream iss(argv[dd + 1]);
+            int tmp = 0; iss >> tmp;
+            if (tmp > 0) erf_ranks_per_node = tmp;
         }
     }
+
+    const int color = (local_rank < erf_ranks_per_node) ? 0 : 1; // 0=ERF, 1=NoahMP
+    const bool is_erf_rank = (color == 0);
+
+    // 3. Create sub-communicators
+    MPI_Comm comm_sub;
+    MPI_Comm_split(MPI_COMM_WORLD, color, myproc_world, &comm_sub);
+
+    int myproc_sub = -1;
+    int nprocs_sub = -1;
+    MPI_Comm_rank(comm_sub, &myproc_sub);
+    MPI_Comm_size(comm_sub, &nprocs_sub);
+
+    // 4. Calculate global total of ERF vs NoahMP ranks
+    int my_erf_count = is_erf_rank ? 1 : 0;
+    int global_erf_ranks = 0;
+    MPI_Allreduce(&my_erf_count, &global_erf_ranks, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    int global_noah_ranks = nprocs_world - global_erf_ranks;
+
+    // 5. Diagnostics
+    if (myproc_world == 0) {
+        std::cout << "\n=======================================================\n";
+        std::cout << "[SPMD INIT] Total World Ranks: " << nprocs_world << "\n";
+        std::cout << "[SPMD INIT] Policy: " << erf_ranks_per_node << " ERF ranks per node\n";
+        std::cout << "[SPMD INIT] Global Split: " << global_erf_ranks << " ERF, "
+                  << global_noah_ranks << " NoahMP\n";
+        std::cout << "=======================================================\n\n";
+    }
+    if (local_rank == 0) {
+        std::cout << "[SPMD Node Leader] World Rank " << myproc_world
+                  << " reports local node size = " << local_size << "\n";
+    }
+
+    // Configure the SPMD service (partner rank lookup)
+    MPI_Comm node_comm;
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, myproc_world, // FIX: was myproc
+                        MPI_INFO_NULL, &node_comm);
+
+    int my_node_rank, node_size;
+    MPI_Comm_rank(node_comm, &my_node_rank);
+    MPI_Comm_size(node_comm, &node_size);
+
+    int local_noah_id = (!is_erf_rank) ? myproc_world : -1;
+    std::vector<int> node_noah_ranks(node_size);
+    MPI_Allgather(&local_noah_id, 1, MPI_INT,
+                  node_noah_ranks.data(), 1, MPI_INT, node_comm);
+
+    std::vector<int> valid_node_noah_ranks;
+    for (int r : node_noah_ranks) {
+        if (r != -1) valid_node_noah_ranks.push_back(r);
+    }
+
+    if (valid_node_noah_ranks.empty()) {
+        if (my_node_rank == 0) { // Only print once per node
+            std::cerr << "Error: No NoahMP rank found on physical node! Check MPI task layout." << std::endl;
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    int partner_world_rank = -1;
+    if (is_erf_rank) {
+        partner_world_rank = valid_node_noah_ranks[my_node_rank % valid_node_noah_ranks.size()];
+    }
+    MPI_Comm_free(&node_comm);
+
+    //    NOAHMP::ConfigureSPMD(global_erf_ranks, global_noah_ranks, is_erf_rank, partner_world_rank);
+
+    if (is_erf_rank) {
+        const int dashdash = find_dashdash(argc, argv);
+        int erf_argc = dashdash;
+        char** erf_argv = argv;
+
+        if (myproc_sub == 0) {
+            std::cout << "[SPMD][ERF] Initializing AMReX with " << nprocs_sub << " ranks.\n";
+        }
+
+        amrex::Initialize(erf_argc, erf_argv, true, comm_sub, add_par);
+
+#ifdef ERF_USE_KOKKOS
+        if (!Kokkos::is_initialized()) {
+            Kokkos::initialize(Kokkos::InitializationSettings()
+                               .set_device_id(amrex::Gpu::Device::deviceId()));
+        }
+#endif
+
+        {
+            BL_PROFILE_VAR("main()", pmain);
+            const Real strt_total = Real(amrex::second());
+            ERF erf;
+            erf.InitData();
+            erf.Evolve();
+
+	    //            NOAHMP::ShutdownSPMDService();
+
+            Real end_total = Real(amrex::second()) - strt_total;
+            ParallelDescriptor::ReduceRealMax(end_total, ParallelDescriptor::IOProcessorNumber());
+            if (erf.Verbose()) {
+                amrex::Print() << "\nTotal Time: " << end_total << '\n';
+            }
+
+            BL_PROFILE_VAR_STOP(pmain);
+        }
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+#ifdef ERF_USE_KOKKOS
+        Kokkos::finalize();
+#endif
+        amrex::Finalize();
+
+    } else {
+        if (myproc_sub == 0) {
+            std::cout << "[SPMD][NOAH] Starting RunNOAHMPSPMDService() with "
+                      << nprocs_sub << " ranks.\n";
+        }
+
+        RunNOAHMPSPMDService(comm_sub);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
+
+    MPI_Comm_free(&comm_sub);
+
+#else // standard ERF without NOAHMP SPMD
+
 #ifdef ERF_USE_WW3_COUPLING
     MPI_Comm comm = amrex::MPMD::Initialize(argc, argv);
-    amrex::Initialize(argc,argv,true,comm,add_par);
+    amrex::Initialize(argc, argv, true, comm, add_par);
 #else
-    amrex::Initialize(argc,argv,true,MPI_COMM_WORLD,add_par);
+    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, add_par);
 #endif
 
 #ifdef ERF_USE_KOKKOS
-    // Initialize kokkos
     if (!Kokkos::is_initialized()) {
         Kokkos::initialize(Kokkos::InitializationSettings()
                            .set_device_id(amrex::Gpu::Device::deviceId()));
     }
 #endif
 
-    // Save the inputs file name for later.
-    if (!strchr(argv[1], '=')) {
-      inputs_name = argv[1];
-    }
-
-    // timer for profiling
-    BL_PROFILE_VAR("main()", pmain);
-
-    // wallclock time
-    const Real strt_total = Real(amrex::second());
-
     {
-        // constructor - reads in parameters from inputs file
-        //             - sizes multilevel arrays and data structures
+        BL_PROFILE_VAR("main()", pmain);
+        const Real strt_total = Real(amrex::second());
         ERF erf;
-
-        // initialize AMR data
         erf.InitData();
-
-        // advance solution to final time
         erf.Evolve();
 
-        // wallclock time
         Real end_total = Real(amrex::second()) - strt_total;
-
-        // print wallclock time
-        ParallelDescriptor::ReduceRealMax(end_total ,ParallelDescriptor::IOProcessorNumber());
+        ParallelDescriptor::ReduceRealMax(end_total, ParallelDescriptor::IOProcessorNumber());
         if (erf.Verbose()) {
             amrex::Print() << "\nTotal Time: " << end_total << '\n';
         }
+
+        BL_PROFILE_VAR_STOP(pmain);
     }
 
-    // destroy timer for profiling
-    BL_PROFILE_VAR_STOP(pmain);
 #ifdef ERF_USE_WW3_COUPLING
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
@@ -180,11 +336,7 @@ return code;
 #endif
 
     amrex::Finalize();
-#ifdef AMREX_USE_MPI
-#ifdef ERF_USE_WW3_COUPLING
-    amrex::MPMD::Finalize();
-#else
-    MPI_Finalize();
-#endif
-#endif
+#endif // ERF_USE_NOAHMP_SPMD
+
+    return finalize_mpi_and_return(0);
 }
