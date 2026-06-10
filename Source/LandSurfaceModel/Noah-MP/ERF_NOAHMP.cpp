@@ -326,6 +326,23 @@ NOAHMP::Advance_With_State (const int& lev,
     // Ensure the GPU has finished writing the pinned host buffers before MPI reads them.
     Gpu::streamSynchronize();
 
+    static bool printed_pack_debug = false;
+    if (!printed_pack_debug && !noahmp_input_tmp.empty()) {
+        const Box& bx = noahmp_input_tmp[0]->box();
+        if (bx.ok()) {
+            const int i = bx.smallEnd(0);
+            const int j = bx.smallEnd(1);
+            Array4<Real const> noah_input_arr = noahmp_input_tmp[0]->const_array();
+            Print() << "[NOAHMP_SPMD] pack first cell (i=" << i
+                    << ", j=" << j
+                    << "): T_PHY=" << noah_input_arr(i,j,0,NoahmpInputComp::t_phy)
+                    << " GLW=" << noah_input_arr(i,j,0,NoahmpInputComp::glw)
+                    << " SWDOWN=" << noah_input_arr(i,j,0,NoahmpInputComp::swdown)
+                    << std::endl;
+            printed_pack_debug = true;
+        }
+    }
+
     int done = 0;
     Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
     int ireq = 0;

@@ -17,11 +17,11 @@ struct NoahServiceBlock {
     std::vector<double> output;
 };
 
-inline int slab_index (int i, int j, int ilo, int jlo, int nx, int ncomp, int comp)
+inline int slab_index (int i, int j, int ilo, int jlo, int nx, int ny, int comp)
 {
     const int ii = i - ilo;
     const int jj = j - jlo;
-    return (jj * nx + ii) * ncomp + comp;
+    return ii + nx * jj + nx * ny * comp;
 }
 
 } // namespace
@@ -93,18 +93,32 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
         for (auto& b : blocks) {
             NoahmpIO_type& noah = noahmpio_vect[b.io_idx];
             const int nx = b.ihi - b.ilo + 1;
+            const int ny = b.jhi - b.jlo + 1;
 
             for (int j = b.jlo; j <= b.jhi; ++j) {
                 for (int i = b.ilo; i <= b.ihi; ++i) {
-                    noah.U_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::u_phy)];
-                    noah.V_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::v_phy)];
-                    noah.T_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::t_phy)];
-                    noah.QV_CURR(i,1,j) = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::qv_curr)];
-                    noah.P8W(i,1,j)     = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::p8w)];
-                    noah.SWDOWN(i,j)    = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::swdown)];
-                    noah.GLW(i,j)       = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::glw)];
-                    noah.COSZEN(i,j)    = b.input[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpInputComp::NumComps,NoahmpInputComp::coszen)];
+                    noah.U_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::u_phy)];
+                    noah.V_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::v_phy)];
+                    noah.T_PHY(i,1,j)   = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::t_phy)];
+                    noah.QV_CURR(i,1,j) = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::qv_curr)];
+                    noah.P8W(i,1,j)     = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::p8w)];
+                    noah.SWDOWN(i,j)    = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::swdown)];
+                    noah.GLW(i,j)       = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::glw)];
+                    noah.COSZEN(i,j)    = b.input[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpInputComp::coszen)];
                 }
+            }
+
+            static bool printed_unpack_debug = false;
+            if (!printed_unpack_debug && b.ihi >= b.ilo && b.jhi >= b.jlo) {
+                const int i = b.ilo;
+                const int j = b.jlo;
+                std::cout << "[NOAHMP_SPMD] unpack first cell (i=" << i
+                          << ", j=" << j
+                          << "): T_PHY=" << noah.T_PHY(i,1,j)
+                          << " GLW=" << noah.GLW(i,j)
+                          << " SWDOWN=" << noah.SWDOWN(i,j)
+                          << std::endl;
+                printed_unpack_debug = true;
             }
 
             // Run Physics
@@ -113,16 +127,16 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
 
             for (int j = b.jlo; j <= b.jhi; ++j) {
                 for (int i = b.ilo; i <= b.ihi; ++i) {
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::hfx)] = noah.HFX(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::lh)] = noah.LH(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tau_ew)] = noah.TAU_EW(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tau_ns)] = noah.TAU_NS(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::tsk)] = noah.TSK(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::emiss)] = noah.EMISS(i,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdir_vis)] = noah.ALBSFCDIRXY(i,1,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdir_nir)] = noah.ALBSFCDIRXY(i,2,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdif_vis)] = noah.ALBSFCDIFXY(i,1,j);
-                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdif_nir)] = noah.ALBSFCDIFXY(i,2,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::hfx)] = noah.HFX(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::lh)] = noah.LH(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::tau_ew)] = noah.TAU_EW(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::tau_ns)] = noah.TAU_NS(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::tsk)] = noah.TSK(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::emiss)] = noah.EMISS(i,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_vis)] = noah.ALBSFCDIRXY(i,1,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_nir)] = noah.ALBSFCDIRXY(i,2,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_vis)] = noah.ALBSFCDIFXY(i,1,j);
+                    b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_nir)] = noah.ALBSFCDIFXY(i,2,j);
                 }
             }
         }
