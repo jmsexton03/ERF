@@ -166,6 +166,38 @@ NOAHMP::Init (const int& lev,
         }
     }
 
+    // Safety check: this SPMD path assumes a 1-to-1 mapping between
+    // global AMReX boxes and Noah-MP CPU ranks.
+    const int total_global_boxes = static_cast<int>(cons_in.boxArray().size());
+    const int total_cpu_ranks = static_cast<int>(ranks_other.size());
+    if (total_global_boxes != total_cpu_ranks) {
+        const amrex::Box domain_box = cons_in.boxArray().minimalBox();
+        amrex::BoxArray suggested_ba =
+            amrex::decompose(domain_box, total_cpu_ranks, {true, true, false});
+
+        int suggested_mgs_x = 0;
+        int suggested_mgs_y = 0;
+        for (const auto& bx : suggested_ba) {
+            suggested_mgs_x = std::max(suggested_mgs_x, bx.length(0));
+            suggested_mgs_y = std::max(suggested_mgs_y, bx.length(1));
+        }
+
+        amrex::Print() << "\n[NOAHMP_SPMD][ERROR] Invalid ERF/Noah-MP box-to-rank mapping.\n"
+                       << "  AMReX created " << total_global_boxes << " global boxes,\n"
+                       << "  but only " << total_cpu_ranks << " Noah-MP CPU ranks are available.\n"
+                       << "  This SPMD coupling path requires exactly one Noah-MP CPU rank per global box.\n"
+                       << "  Adjust amr.max_grid_size_x/y/z or amr.blocking_factor in the inputs file\n"
+                       << "  so the ERF BoxArray decomposes into exactly " << total_cpu_ranks
+                       << " boxes.\n"
+                       << "  Suggestion: Try setting amr.max_grid_size_x = " << suggested_mgs_x
+                       << " and amr.max_grid_size_y = " << suggested_mgs_y
+                       << " and amr.blocking_factor = 1\n" << std::endl;
+    }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        total_global_boxes == total_cpu_ranks,
+        "NOAHMP::Init requires cons_in.boxArray().size() == ranks_other.size() "
+        "for 1:1 ERF-box to Noah-MP-rank mapping.");
+
     // 2. Loop through the local tiles, but use MFIter's *global* index
     //    to pick the specific CPU rank destination from the list.
     int dummy_num_tiles = 1; // amrex-spmd sends 1 box per CPU rank
@@ -371,15 +403,17 @@ NOAHMP::Advance_With_State (const int& lev,
 #else
     bool use_tiling = TilingIfNotGPU();
     int idb = 0;
-    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi, ++idb) {
         Box bx  = mfi.tilebox();
         Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
 
+        // Check if tile is at the lower boundary in lower z direction
         if (bx.smallEnd(2) != klo) { continue; }
 
         bx.makeSlab(2,klo);
         gbx.makeSlab(2,klo);
 
+        // For limiting when populating ghost cells
         int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
         int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
 
@@ -388,22 +422,31 @@ NOAHMP::Advance_With_State (const int& lev,
         const Array4<const Real>& U_PHY  = xvel_in.const_array(mfi);
         const Array4<const Real>& V_PHY  = yvel_in.const_array(mfi);
         const Array4<const Real>& CONS   = cons_in.const_array(mfi);
+
+        // Into NOAH-MP
         const Array4<const Real>& SWDOWN = lsm_fab_data[LsmData_NOAHMP::sw_flux_dn]->const_array(mfi);
         const Array4<const Real>& GLW    = lsm_fab_data[LsmData_NOAHMP::lw_flux_dn]->const_array(mfi);
         const Array4<const Real>& COSZEN = lsm_fab_data[LsmData_NOAHMP::cos_zenith_angle]->const_array(mfi);
+
+        // Out of NOAH-MP
         Array4<Real> TSK           = lsm_fab_data[LsmData_NOAHMP::t_sfc]->array(mfi);
         Array4<Real> EMISS         = lsm_fab_data[LsmData_NOAHMP::sfc_emis]->array(mfi);
         Array4<Real> ALBSFCDIR_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_vis]->array(mfi);
         Array4<Real> ALBSFCDIR_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_nir]->array(mfi);
         Array4<Real> ALBSFCDIF_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_vis]->array(mfi);
         Array4<Real> ALBSFCDIF_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_nir]->array(mfi);
+
+        // NOTE: Need to expose stresses and get stresses from NOAHMP
         Array4<Real> q_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::q_flux]->array(mfi);
         Array4<Real> t_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
         Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
         Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
+
+        // Use The_Pinned_Arena() for host-accessible memory that can be used with GPU
         Array4<Real> noah_input_arr  =  noahmp_input_tmp[idb]->array();
         Array4<Real> noah_output_arr =  noahmp_output_tmp[idb]->array();
 
+        // Copy forcing data from ERF to Noahmp.
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
             Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
@@ -417,8 +460,10 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
         });
 
+        // Synchronize to ensure GPU kernel is complete before host access
         Gpu::streamSynchronize();
 
+        // Now on the host, copy data to NoahmpIO arrays
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
             noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
@@ -431,9 +476,12 @@ NOAHMP::Advance_With_State (const int& lev,
             noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
         });
 
+        // Call the noahmpio driver code. This runs the land model forcing for
+        // each object in noahmpio_vect that represent a block in the domain.
         noahmpio->itimestep += 1;
         noahmpio->DriverMain();
 
+        // Copy results from NoahmpIO back to temporary arrays
         LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
             noah_output_arr(i,j,0,NoahmpOutputComp::hfx)           = noahmpio->HFX(i,j);
@@ -448,15 +496,24 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
         });
 
+        // Copy forcing data from Noahmp to ERF
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
+            // Limit indices to the valid box. FillBoundary will pick these up below.
             int ii = std::min(std::max(i,i_lo),i_hi);
             int jj = std::min(std::max(j,j_lo),j_hi);
 
+            // SurfaceLayer fluxes at CC
             t_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::hfx)/(CONS(ii,jj,k,Rho_comp)*Cp_d);
             q_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::lh)/(CONS(ii,jj,k,Rho_comp)*L_v);
+
+            // NOTE: The following fluxes are nodal in xz/yz.
+            //       The 2D MFs have 1 ghost cell so we can average these
+            //       when using them in the surface layer class.
             tau13_arr(i,j,k)  = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
             tau23_arr(i,j,k)  = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
+
+            // RRTMGP variables
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
@@ -464,8 +521,6 @@ NOAHMP::Advance_With_State (const int& lev,
             ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
             ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
         });
-
-        ++idb;
     }
 #endif
 
