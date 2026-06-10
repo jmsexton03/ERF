@@ -15,6 +15,7 @@
 #include <ERF_Constants.H>
 #include <ERF_IndexDefines.H>
 #include <ERF_DataStruct.H>
+#include <ERF_NOAHMP_SPMD_Shared.H>
 
 // External include from the noahmp library
 #include <NoahmpIO.H>
@@ -50,36 +51,6 @@ namespace LsmFlux_NOAHMP {
   };
 }
 
-
-namespace NoahmpInputComp {
-    enum {
-        u_phy = 0,
-        v_phy,
-        t_phy,
-        qv_curr,
-        p8w,
-        swdown,
-        glw,
-        coszen,
-        NumComps
-    };
-}
-
-namespace NoahmpOutputComp {
-    enum {
-        hfx = 0,
-        lh,
-        tau_ew,
-        tau_ns,
-        tsk,
-        emiss,
-        albsfcdir_vis,
-        albsfcdir_nir,
-        albsfcdif_vis,
-        albsfcdif_nir,
-        NumComps
-    };
-}
 
 class NOAHMP : public NullSurf {
 
