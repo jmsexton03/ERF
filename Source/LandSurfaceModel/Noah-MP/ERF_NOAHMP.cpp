@@ -177,7 +177,8 @@ NOAHMP::Init (const int& lev,
 
         int suggested_mgs_x = 0;
         int suggested_mgs_y = 0;
-        for (const auto& bx : suggested_ba) {
+        for (int ibox = 0; ibox < suggested_ba.size(); ++ibox) {
+            const auto& bx = suggested_ba[ibox];
             suggested_mgs_x = std::max(suggested_mgs_x, bx.length(0));
             suggested_mgs_y = std::max(suggested_mgs_y, bx.length(1));
         }
