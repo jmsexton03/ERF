@@ -115,7 +115,13 @@ NOAHMP::Init (const int& lev,
 
     int klo = domain.smallEnd(2);
     int idb = 0;
-    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
+#ifdef ERF_USE_NOAHMP_SPMD
+    // SPMD coupling requires a 1-to-1 mapping between boxes and ranks.
+    bool use_tiling = false;
+#else
+    bool use_tiling = TilingIfNotGPU();
+#endif
+    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx = mfi.tilebox();
         if (bx.smallEnd(2) != klo) { continue; }
         bx.makeSlab(2, klo);
@@ -136,6 +142,7 @@ NOAHMP::Init (const int& lev,
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!tiles.empty(),
         "Noah-MP Init: no bottom-slab tiles found for this rank");
 
+#ifdef ERF_USE_NOAHMP_SPMD
     // 1. Build the list of all global CPU ranks
     int nprocs_world;
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
@@ -154,7 +161,7 @@ NOAHMP::Init (const int& lev,
     //    to pick the specific CPU rank destination from the list.
     int dummy_num_tiles = 1; // amrex-spmd sends 1 box per CPU rank
     int idb_send = 0;
-    for (amrex::MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
+    for (amrex::MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         amrex::Box bx = mfi.tilebox();
         if (bx.smallEnd(2) != klo) { continue; } // Keep your klo logic
 
@@ -169,6 +176,7 @@ NOAHMP::Init (const int& lev,
 
         ++idb_send;
     }
+#endif
 
     // Initialize ERF's copy
     InitNoahmpIOOnly(
@@ -218,7 +226,12 @@ NOAHMP::Advance_With_State (const int& lev,
     // Loop over blocks to copy forcing data to Noahmp, drive the land model,
     // and copy data back to ERF Multifabs.
     int idb = 0;
-    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
+#ifdef ERF_USE_NOAHMP_SPMD
+    bool use_tiling = false;
+#else
+    bool use_tiling = TilingIfNotGPU();
+#endif
+    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
 
         Box bx  = mfi.tilebox();
         Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
