@@ -90,7 +90,7 @@ public:
     NOAHMP () {}
 
     // Destructor
-    virtual ~NOAHMP () = default;
+    ~NOAHMP () override;
 
     // Set thermo and grid properties
     void
@@ -246,6 +246,7 @@ private:
     // Pinned memory buffers for host/device coupling to Noah-MP
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_input_tmp;
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_output_tmp;
+    amrex::Vector<int> noahmp_partner_ranks;
 
     // Plot frequency
     int m_plot_int_1 = -1;

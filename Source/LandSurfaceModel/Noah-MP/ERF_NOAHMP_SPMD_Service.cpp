@@ -2,6 +2,7 @@
 
 #include <mpi.h>
 #include <vector>
+#include <iostream>
 
 #include "ERF_NOAHMP_IO_Init.H"
 #include "ERF_NOAHMP_SPMD_Shared.H"
@@ -25,39 +26,32 @@ inline int slab_index (int i, int j, int ilo, int jlo, int nx, int ncomp, int co
 
 } // namespace
 
-void RunNOAHMPSPMDService()
+void RunNOAHMPSPMDService(MPI_Comm comm_sub)
 {
-    int myrank_world = 0;
-    MPI_Comm_rank(MPI_COMM_WORLD, &myrank_world);
+    int myproc_sub = -1;
+    MPI_Comm_rank(comm_sub, &myproc_sub);
 
-    // 1. Receive metadata size from ANY source. The sender becomes our dedicated partner.
-    int nblocks = 0;
+    int num_tiles = 0;
     MPI_Status status;
-    MPI_Recv(&nblocks, 1, MPI_INT, MPI_ANY_SOURCE, noahmp_spmd::SPMDMetaSizeTag,
+    MPI_Recv(&num_tiles, 1, MPI_INT, MPI_ANY_SOURCE, noahmp_spmd::SPMDMetaSizeTag,
              MPI_COMM_WORLD, &status);
+    const int erf_partner_rank = status.MPI_SOURCE;
 
-    const int partner = status.MPI_SOURCE;
-
-    // 2. Receive the bounding boxes
-    std::vector<int> bounds(4 * nblocks, 0);
-    MPI_Recv(bounds.data(), static_cast<int>(bounds.size()), MPI_INT, partner,
+    std::vector<NoahTile2D> tiles(num_tiles);
+    if (num_tiles > 0) {
+        MPI_Recv(tiles.data(), num_tiles * 4, MPI_INT, erf_partner_rank,
              noahmp_spmd::SPMDMetaBoxesTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    // 3. Create a dedicated sub-communicator for Noah-MP ranks (for NoahmpIO's internal use)
-    MPI_Comm comm_sub;
-    MPI_Comm_split(MPI_COMM_WORLD, /*color=*/1, myrank_world, &comm_sub);
+    }
 
     NoahmpIO_vector noahmpio_vect;
-    std::vector<NoahTile2D> tiles;
-    tiles.reserve(nblocks);
-    std::vector<NoahServiceBlock> blocks(nblocks);
+    std::vector<NoahServiceBlock> blocks(num_tiles);
 
-    for (int ib = 0; ib < nblocks; ++ib) {
+    for (int ib = 0; ib < num_tiles; ++ib) {
         auto& b = blocks[ib];
-        b.ilo = bounds[4*ib+0];
-        b.jlo = bounds[4*ib+1];
-        b.ihi = bounds[4*ib+2];
-        b.jhi = bounds[4*ib+3];
+        b.ilo = tiles[ib].ilo;
+        b.jlo = tiles[ib].jlo;
+        b.ihi = tiles[ib].ihi;
+        b.jhi = tiles[ib].jhi;
         b.io_idx = ib;
 
         const int nx = b.ihi - b.ilo + 1;
@@ -65,7 +59,6 @@ void RunNOAHMPSPMDService()
 
         b.input.resize(nx * ny * NoahmpInputComp::NumComps);
         b.output.resize(nx * ny * NoahmpOutputComp::NumComps);
-        tiles.push_back({b.ilo, b.jlo, b.ihi, b.jhi});
     }
 
     InitNoahmpIOOnly(
@@ -75,21 +68,29 @@ void RunNOAHMPSPMDService()
         comm_sub,
         /*write_land0=*/false);
 
-    int done = 0;
-    int step = 0;
+    std::cout << "NoahMP Rank " << myproc_sub
+              << " successfully claimed by ERF Rank " << erf_partner_rank
+              << " and initialized " << num_tiles << " tiles!" << std::endl;
 
-    // 4. Main Service Loop
     while (true) {
-        // Wait for control signal (run step vs shutdown)
-        MPI_Recv(&done, 1, MPI_INT, partner, noahmp_spmd::SPMDControlTag,
+        int done = 0;
+        MPI_Recv(&done, 1, MPI_INT, erf_partner_rank, noahmp_spmd::SPMDControlTag,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        if (done != 0) break;
+        if (done != 0) { break; }
+
+        std::vector<MPI_Request> requests(blocks.size());
+        int ireq = 0;
+        for (auto& b : blocks) {
+            MPI_Irecv(b.input.data(), static_cast<int>(b.input.size()), MPI_DOUBLE,
+                      erf_partner_rank, noahmp_spmd::SPMDInputTag, MPI_COMM_WORLD,
+                      &requests[ireq++]);
+        }
+        if (!requests.empty()) {
+            std::vector<MPI_Status> statuses(requests.size());
+            MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
+        }
 
         for (auto& b : blocks) {
-            // Recv forcing data
-            MPI_Recv(b.input.data(), static_cast<int>(b.input.size()), MPI_DOUBLE,
-                     partner, noahmp_spmd::SPMDInputTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
             NoahmpIO_type& noah = noahmpio_vect[b.io_idx];
             const int nx = b.ihi - b.ilo + 1;
 
@@ -124,15 +125,19 @@ void RunNOAHMPSPMDService()
                     b.output[slab_index(i,j,b.ilo,b.jlo,nx,NoahmpOutputComp::NumComps,NoahmpOutputComp::albsfcdif_nir)] = noah.ALBSFCDIFXY(i,2,j);
                 }
             }
-
-            // Send Output back
-            MPI_Send(b.output.data(), static_cast<int>(b.output.size()), MPI_DOUBLE,
-                     partner, noahmp_spmd::SPMDOutputTag, MPI_COMM_WORLD);
         }
 
-        ++step;
+        requests.resize(blocks.size());
+        ireq = 0;
+        for (auto& b : blocks) {
+            MPI_Isend(b.output.data(), static_cast<int>(b.output.size()), MPI_DOUBLE,
+                      erf_partner_rank, noahmp_spmd::SPMDOutputTag, MPI_COMM_WORLD,
+                      &requests[ireq++]);
+        }
+        if (!requests.empty()) {
+            std::vector<MPI_Status> statuses(requests.size());
+            MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
+        }
     }
-
-    MPI_Comm_free(&comm_sub);
 }
 #endif

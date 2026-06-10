@@ -19,11 +19,11 @@ namespace NoahmpOutputComp {
 #ifdef ERF_USE_NOAHMP_SPMD
 namespace noahmp_spmd {
     // MPI Communication Tags
-    constexpr int SPMDControlTag   = 4242;
-    constexpr int SPMDMetaSizeTag  = 4243;
-    constexpr int SPMDMetaBoxesTag = 4244;
-    constexpr int SPMDInputTag     = 4245;
-    constexpr int SPMDOutputTag    = 4246;
+    constexpr int SPMDMetaSizeTag  = 100;
+    constexpr int SPMDMetaBoxesTag = 101;
+    constexpr int SPMDControlTag   = 200;
+    constexpr int SPMDInputTag     = 300;
+    constexpr int SPMDOutputTag    = 400;
 }
 
 // Service entry point for NoahMP ranks (C-style linkage/free function)
