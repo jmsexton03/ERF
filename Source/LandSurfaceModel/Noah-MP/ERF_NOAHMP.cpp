@@ -110,17 +110,26 @@ NOAHMP::Init (const int& lev,
     // Build 2D tiles in exactly the same MFIter order as before
     std::vector<NoahTile2D> tiles;
     tiles.reserve(cons_in.local_size());
+    noahmp_input_tmp.resize(cons_in.local_size());
+    noahmp_output_tmp.resize(cons_in.local_size());
 
     int klo = domain.smallEnd(2);
+    int idb = 0;
     for (MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
-      Box bx = mfi.tilebox();
-      if (bx.smallEnd(2) != klo) { continue; }
-      bx.makeSlab(2, klo);
+        Box bx = mfi.tilebox();
+        if (bx.smallEnd(2) != klo) { continue; }
+        bx.makeSlab(2, klo);
 
-      tiles.push_back(NoahTile2D{
-          bx.smallEnd(0), bx.smallEnd(1),
-          bx.bigEnd(0),   bx.bigEnd(1)
+        noahmp_input_tmp[idb] =
+            std::make_unique<FArrayBox>(bx, NoahmpInputComp::NumComps, The_Pinned_Arena());
+        noahmp_output_tmp[idb] =
+            std::make_unique<FArrayBox>(bx, NoahmpOutputComp::NumComps, The_Pinned_Arena());
+
+        tiles.push_back(NoahTile2D{
+            bx.smallEnd(0), bx.smallEnd(1),
+            bx.bigEnd(0),   bx.bigEnd(1)
         });
+        ++idb;
     }
 
     // Optional safety: mirror prior expectation that we have work
@@ -134,6 +143,8 @@ NOAHMP::Init (const int& lev,
         tiles,
         ParallelDescriptor::Communicator(),
         /*write_land0=*/true);
+
+    AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
 
     Print() << "Noah-MP initialization completed" << std::endl;
 
@@ -173,7 +184,7 @@ NOAHMP::Advance_With_State (const int& lev,
     // Loop over blocks to copy forcing data to Noahmp, drive the land model,
     // and copy data back to ERF Multifabs.
     int idb = 0;
-    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi, ++idb) {
+    for (MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
 
         Box bx  = mfi.tilebox();
         Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
@@ -292,6 +303,8 @@ NOAHMP::Advance_With_State (const int& lev,
             ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
             ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
         });
+
+        ++idb;
     }
 
     // Fill the ghost cells
