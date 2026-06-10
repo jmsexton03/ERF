@@ -48,10 +48,10 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
 
     for (int ib = 0; ib < num_tiles; ++ib) {
         auto& b = blocks[ib];
-        b.ilo = tiles[ib].ilo;
-        b.jlo = tiles[ib].jlo;
-        b.ihi = tiles[ib].ihi;
-        b.jhi = tiles[ib].jhi;
+        b.ilo = tiles[ib].xlo;
+        b.jlo = tiles[ib].ylo;
+        b.ihi = tiles[ib].xhi;
+        b.jhi = tiles[ib].yhi;
         b.io_idx = ib;
 
         const int nx = b.ihi - b.ilo + 1;
