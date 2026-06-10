@@ -271,8 +271,6 @@ int main (int argc, char* argv[])
             erf.InitData();
             erf.Evolve();
 
-	    //            NOAHMP::ShutdownSPMDService();
-
             Real end_total = Real(amrex::second()) - strt_total;
             ParallelDescriptor::ReduceRealMax(end_total, ParallelDescriptor::IOProcessorNumber());
             if (erf.Verbose()) {
@@ -291,11 +289,39 @@ int main (int argc, char* argv[])
 
     } else {
         if (myproc_sub == 0) {
-            std::cout << "[SPMD][NOAH] Starting RunNOAHMPSPMDService() with "
+            std::cout << "[SPMD][NOAH] Starting Handshake Test with "
                       << nprocs_sub << " ranks.\n";
         }
 
-        RunNOAHMPSPMDService(comm_sub);
+        int num_tiles = 0;
+        MPI_Status status;
+
+        // Wait for ANY AMReX rank to claim me
+        MPI_Recv(&num_tiles, 1, MPI_INT, MPI_ANY_SOURCE, 100, MPI_COMM_WORLD, &status);
+
+        // Save the sender's global rank for the time-advance loop!
+        int erf_partner_rank = status.MPI_SOURCE;
+
+        std::vector<NoahTile2D> tiles(num_tiles);
+        if (num_tiles > 0) {
+            MPI_Recv(tiles.data(), num_tiles * 4, MPI_INT,
+                     erf_partner_rank, 101, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
+
+        // Initialize NoahMP
+        NoahmpIO_vector noahmpio_vect;
+        int dummy_level = 0;
+
+        InitNoahmpIOOnly(
+            noahmpio_vect,
+            dummy_level,
+            tiles,
+            comm_sub,
+            /*write_land0=*/false);
+
+        std::cout << "NoahMP Rank " << myproc_sub
+                  << " successfully claimed by ERF Rank " << erf_partner_rank
+                  << " and initialized " << num_tiles << " tiles!" << std::endl;
 
         MPI_Barrier(MPI_COMM_WORLD);
     }

@@ -136,7 +136,41 @@ NOAHMP::Init (const int& lev,
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!tiles.empty(),
         "Noah-MP Init: no bottom-slab tiles found for this rank");
 
-    // Single helper call replaces manual noahmpio setup loop
+    // 1. Build the list of all global CPU ranks
+    int nprocs_world;
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
+
+    // Recreate the same split logic here as amrex-spmd repo to find the CPU ranks
+    int n_erf_ranks = amrex::ParallelDescriptor::NProcs();
+    int stride = nprocs_world / n_erf_ranks;
+    std::vector<int> ranks_other;
+    for (int i = 0; i < nprocs_world; ++i) {
+        if ((i % stride) != 0) { // If it's NOT an ERF rank
+            ranks_other.push_back(i);
+        }
+    }
+
+    // 2. Loop through the local tiles, but use MFIter's *global* index
+    //    to pick the specific CPU rank destination from the list.
+    int dummy_num_tiles = 1; // amrex-spmd sends 1 box per CPU rank
+    int idb_send = 0;
+    for (amrex::MFIter mfi(cons_in); mfi.isValid(); ++mfi) {
+        amrex::Box bx = mfi.tilebox();
+        if (bx.smallEnd(2) != klo) { continue; } // Keep your klo logic
+
+        int global_box_index = mfi.index();
+        int remote_cpu_rank = ranks_other[global_box_index];
+
+        // Send 1 (num_tiles)
+        MPI_Send(&dummy_num_tiles, 1, MPI_INT, remote_cpu_rank, 100, MPI_COMM_WORLD);
+
+        // Send the single NoahTile2D (4 ints)
+        MPI_Send(&tiles[idb_send], 4, MPI_INT, remote_cpu_rank, 101, MPI_COMM_WORLD);
+
+        ++idb_send;
+    }
+
+    // Initialize ERF's copy
     InitNoahmpIOOnly(
         noahmpio_vect,
         lev,
