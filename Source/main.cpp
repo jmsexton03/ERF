@@ -161,19 +161,26 @@ int main (int argc, char* argv[])
     MPI_Comm_size(local_comm, &local_size);
     MPI_Comm_free(&local_comm);
 
-    // 2. Define splitting policy: default 4 ERF ranks per node (for 4 GPUs),
-    //    overridable via command line "-- N"
-    int erf_ranks_per_node = 4;
+    // 2. Define splitting policy to match ../amrex-spmd/main.cpp:
+    //    "-- N" means N total ERF/AMReX ranks globally.
+    int n_erf_ranks = 0;
     {
         const int dd = find_dashdash(argc, argv);
         if (dd < argc - 1) {
             std::istringstream iss(argv[dd + 1]);
-            int tmp = 0; iss >> tmp;
-            if (tmp > 0) erf_ranks_per_node = tmp;
+            iss >> n_erf_ranks;
         }
     }
 
-    const int color = (local_rank < erf_ranks_per_node) ? 0 : 1; // 0=ERF, 1=NoahMP
+    if (n_erf_ranks == 0 || nprocs_world % n_erf_ranks != 0) {
+        if (myproc_world == 0) {
+            std::cerr << "Invalid SPMD split: '-- N' must provide a positive total ERF rank count"
+                      << " that evenly divides the total MPI ranks.\n";
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    const int color = ((myproc_world % (nprocs_world / n_erf_ranks)) == 0) ? 0 : 1; // 0=ERF, 1=NoahMP
     const bool is_erf_rank = (color == 0);
 
     // 3. Create sub-communicators
@@ -195,7 +202,7 @@ int main (int argc, char* argv[])
     if (myproc_world == 0) {
         std::cout << "\n=======================================================\n";
         std::cout << "[SPMD INIT] Total World Ranks: " << nprocs_world << "\n";
-        std::cout << "[SPMD INIT] Policy: " << erf_ranks_per_node << " ERF ranks per node\n";
+        std::cout << "[SPMD INIT] Policy: " << n_erf_ranks << " total ERF ranks globally\n";
         std::cout << "[SPMD INIT] Global Split: " << global_erf_ranks << " ERF, "
                   << global_noah_ranks << " NoahMP\n";
         std::cout << "=======================================================\n\n";
