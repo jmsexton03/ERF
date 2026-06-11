@@ -215,8 +215,19 @@ private:
     NoahmpIO_vector noahmpio_vect;
 
     // Pinned memory buffers for host/device coupling to Noah-MP
+#ifdef ERF_USE_NOAHMP_SPMD
+    // ERF-native 2D staging buffers used before/after ParallelCopy.
+    std::unique_ptr<amrex::MultiFab> mf_erf_input;
+    std::unique_ptr<amrex::MultiFab> mf_erf_output;
+
+    // These play the same role as mf_lo in the amrex-spmd prototype:
+    // a dedicated coupling layout with one 2D box per remote Noah-MP rank.
+    std::unique_ptr<amrex::MultiFab> mf_spmd_input;
+    std::unique_ptr<amrex::MultiFab> mf_spmd_output;
+#else
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_input_tmp;
     amrex::Vector<std::unique_ptr<amrex::FArrayBox>> noahmp_output_tmp;
+#endif
     amrex::Vector<int> noahmp_partner_ranks;
 
     // Plot frequency

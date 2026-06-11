@@ -115,21 +115,78 @@ NOAHMP::Init (const int& lev,
 
     Print() << "Noah-MP initialization started" << std::endl;
 
-    // Build 2D tiles in exactly the same MFIter order as before
+    // Build 2D tiles in exactly the same MFIter order as the MPI communication path.
     std::vector<NoahTile2D> tiles;
-    tiles.reserve(cons_in.local_size());
-    noahmp_input_tmp.resize(cons_in.local_size());
-    noahmp_output_tmp.resize(cons_in.local_size());
     noahmp_partner_ranks.clear();
 
     int klo = domain.smallEnd(2);
-    int idb = 0;
 #ifdef ERF_USE_NOAHMP_SPMD
-    // SPMD coupling requires a 1-to-1 mapping between boxes and ranks.
-    bool use_tiling = false;
+    // Recreate the existing partner-rank metadata locally, but decouple the
+    // communication layout from cons_in.boxArray(). This mf_spmd_* pair plays
+    // the same role as mf_lo in amrex-spmd.
+    int nprocs_world;
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
+
+    int n_erf_ranks = amrex::ParallelDescriptor::NProcs();
+    int stride = nprocs_world / n_erf_ranks;
+    std::vector<int> ranks_other;
+    for (int i = 0; i < nprocs_world; ++i) {
+        if ((i % stride) != 0) {
+            ranks_other.push_back(i);
+        }
+    }
+
+    int total_cpu_ranks = static_cast<int>(ranks_other.size());
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(total_cpu_ranks > 0,
+        "NOAHMP::Init requires at least one Noah-MP CPU rank for SPMD coupling.");
+
+    Box domain2d = amrex::makeSlab(domain, 2, klo);
+    mf_erf_input = std::make_unique<MultiFab>(
+        ba_lsm, dm, NoahmpInputComp::NumComps, 0);
+    mf_erf_output = std::make_unique<MultiFab>(
+        ba_lsm, dm, NoahmpOutputComp::NumComps, 0);
+
+    BoxArray spmd_ba = amrex::decompose(domain2d, total_cpu_ranks, {true, true, false});
+    AMREX_ALWAYS_ASSERT(static_cast<int>(spmd_ba.size()) == total_cpu_ranks);
+    DistributionMapping spmd_dm(spmd_ba);
+
+    mf_spmd_input = std::make_unique<MultiFab>(
+        spmd_ba, spmd_dm, NoahmpInputComp::NumComps, 0,
+        MFInfo().SetArena(The_Pinned_Arena()));
+    mf_spmd_output = std::make_unique<MultiFab>(
+        spmd_ba, spmd_dm, NoahmpOutputComp::NumComps, 0,
+        MFInfo().SetArena(The_Pinned_Arena()));
+
+    tiles.reserve(mf_spmd_input->local_size());
+    Vector<MPI_Request> requests(2 * mf_spmd_input->local_size());
+    int ireq = 0;
+    int dummy_num_tiles = 1;
+    for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.validbox();
+        int remote_cpu_rank = ranks_other[mfi.index()];
+        noahmp_partner_ranks.push_back(remote_cpu_rank);
+
+        tiles.push_back(NoahTile2D{
+            bx.smallEnd(0), bx.smallEnd(1),
+            bx.bigEnd(0),   bx.bigEnd(1)
+        });
+
+        MPI_Isend(&dummy_num_tiles, 1, MPI_INT, remote_cpu_rank, SPMDMetaSizeTag,
+                  MPI_COMM_WORLD, &requests[ireq++]);
+        MPI_Isend(&tiles.back(), 4, MPI_INT, remote_cpu_rank, SPMDMetaBoxesTag,
+                  MPI_COMM_WORLD, &requests[ireq++]);
+    }
+    if (!requests.empty()) {
+        Vector<MPI_Status> statuses(requests.size());
+        MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
+    }
 #else
+    tiles.reserve(cons_in.local_size());
+    noahmp_input_tmp.resize(cons_in.local_size());
+    noahmp_output_tmp.resize(cons_in.local_size());
+
     bool use_tiling = TilingIfNotGPU();
-#endif
+    int idb = 0;
     for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx = mfi.tilebox();
         if (bx.smallEnd(2) != klo) { continue; }
@@ -146,86 +203,11 @@ NOAHMP::Init (const int& lev,
         });
         ++idb;
     }
+#endif
 
     // Optional safety: mirror prior expectation that we have work
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!tiles.empty(),
         "Noah-MP Init: no bottom-slab tiles found for this rank");
-
-#ifdef ERF_USE_NOAHMP_SPMD
-    // 1. Build the list of all global CPU ranks
-    int nprocs_world;
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs_world);
-
-    // Recreate the same split logic here as amrex-spmd repo to find the CPU ranks
-    int n_erf_ranks = amrex::ParallelDescriptor::NProcs();
-    int stride = nprocs_world / n_erf_ranks;
-    std::vector<int> ranks_other;
-    for (int i = 0; i < nprocs_world; ++i) {
-        if ((i % stride) != 0) { // If it's NOT an ERF rank
-            ranks_other.push_back(i);
-        }
-    }
-
-    // Safety check: this SPMD path assumes a 1-to-1 mapping between
-    // global AMReX boxes and Noah-MP CPU ranks.
-    const int total_global_boxes = static_cast<int>(cons_in.boxArray().size());
-    const int total_cpu_ranks = static_cast<int>(ranks_other.size());
-    if (total_global_boxes != total_cpu_ranks) {
-        const amrex::Box domain_box = cons_in.boxArray().minimalBox();
-        amrex::BoxArray suggested_ba =
-            amrex::decompose(domain_box, total_cpu_ranks, {true, true, false});
-
-        int suggested_mgs_x = 0;
-        int suggested_mgs_y = 0;
-        for (int ibox = 0; ibox < suggested_ba.size(); ++ibox) {
-            const auto& bx = suggested_ba[ibox];
-            suggested_mgs_x = std::max(suggested_mgs_x, bx.length(0));
-            suggested_mgs_y = std::max(suggested_mgs_y, bx.length(1));
-        }
-
-        amrex::Print() << "\n[NOAHMP_SPMD][ERROR] Invalid ERF/Noah-MP box-to-rank mapping.\n"
-                       << "  AMReX created " << total_global_boxes << " global boxes,\n"
-                       << "  but only " << total_cpu_ranks << " Noah-MP CPU ranks are available.\n"
-                       << "  This SPMD coupling path requires exactly one Noah-MP CPU rank per global box.\n"
-                       << "  Adjust amr.max_grid_size_x/y/z or amr.blocking_factor in the inputs file\n"
-                       << "  so the ERF BoxArray decomposes into exactly " << total_cpu_ranks
-                       << " boxes.\n"
-                       << "  Suggestion: Try setting amr.max_grid_size_x = " << suggested_mgs_x
-                       << " and amr.max_grid_size_y = " << suggested_mgs_y
-                       << " and amr.blocking_factor = 1\n" << std::endl;
-    }
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        total_global_boxes == total_cpu_ranks,
-        "NOAHMP::Init requires cons_in.boxArray().size() == ranks_other.size() "
-        "for 1:1 ERF-box to Noah-MP-rank mapping.");
-
-    // 2. Loop through the local tiles, but use MFIter's *global* index
-    //    to pick the specific CPU rank destination from the list.
-    int dummy_num_tiles = 1; // amrex-spmd sends 1 box per CPU rank
-    Vector<MPI_Request> requests(2 * tiles.size());
-    int ireq = 0;
-    int idb_send = 0;
-    for (amrex::MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
-        amrex::Box bx = mfi.tilebox();
-        if (bx.smallEnd(2) != klo) { continue; } // Keep your klo logic
-
-        int global_box_index = mfi.index();
-        int remote_cpu_rank = ranks_other[global_box_index];
-        noahmp_partner_ranks.push_back(remote_cpu_rank);
-
-        MPI_Isend(&dummy_num_tiles, 1, MPI_INT, remote_cpu_rank, SPMDMetaSizeTag,
-                  MPI_COMM_WORLD, &requests[ireq++]);
-        MPI_Isend(&tiles[idb_send], 4, MPI_INT, remote_cpu_rank, SPMDMetaBoxesTag,
-                  MPI_COMM_WORLD, &requests[ireq++]);
-
-        ++idb_send;
-    }
-    if (!requests.empty()) {
-        Vector<MPI_Status> statuses(requests.size());
-        MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
-    }
-    AMREX_ALWAYS_ASSERT(noahmp_partner_ranks.size() == tiles.size());
-#endif
 
     // Initialize ERF's copy
     InitNoahmpIOOnly(
@@ -292,8 +274,9 @@ NOAHMP::Advance_With_State (const int& lev,
     // and copy data back to ERF Multifabs.
 #ifdef ERF_USE_NOAHMP_SPMD
     bool use_tiling = false;
+    AMREX_ALWAYS_ASSERT(mf_erf_input && mf_erf_output);
+    AMREX_ALWAYS_ASSERT(mf_spmd_input && mf_spmd_output);
 
-    int idb = 0;
     for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx = mfi.tilebox();
         if (bx.smallEnd(2) != klo) { continue; }
@@ -305,7 +288,7 @@ NOAHMP::Advance_With_State (const int& lev,
         const Array4<const Real>& SWDOWN = lsm_fab_data[LsmData_NOAHMP::sw_flux_dn]->const_array(mfi);
         const Array4<const Real>& GLW    = lsm_fab_data[LsmData_NOAHMP::lw_flux_dn]->const_array(mfi);
         const Array4<const Real>& COSZEN = lsm_fab_data[LsmData_NOAHMP::cos_zenith_angle]->const_array(mfi);
-        Array4<Real> noah_input_arr = noahmp_input_tmp[idb]->array();
+        Array4<Real> noah_input_arr = mf_erf_input->array(mfi);
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
@@ -319,20 +302,22 @@ NOAHMP::Advance_With_State (const int& lev,
             noah_input_arr(i,j,0,NoahmpInputComp::glw)     = GLW(i,j,0);
             noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
         });
-
-        ++idb;
     }
 
-    // Ensure the GPU has finished writing the pinned host buffers before MPI reads them.
+    // Match the mf_lo path in amrex-spmd: pack on ERF's native layout, then
+    // let ParallelCopy move the overlapping regions into the pinned SPMD layout.
+    Gpu::streamSynchronize();
+    mf_spmd_input->ParallelCopy(*mf_erf_input, 0, 0, NoahmpInputComp::NumComps);
     Gpu::streamSynchronize();
 
     static bool printed_pack_debug = false;
-    if (!printed_pack_debug && !noahmp_input_tmp.empty()) {
-        const Box& bx = noahmp_input_tmp[0]->box();
+    if (!printed_pack_debug && mf_spmd_input && mf_spmd_input->local_size() > 0) {
+        MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync());
+        const Box& bx = mfi.validbox();
         if (bx.ok()) {
             const int i = bx.smallEnd(0);
             const int j = bx.smallEnd(1);
-            Array4<Real const> noah_input_arr = noahmp_input_tmp[0]->const_array();
+            Array4<Real const> noah_input_arr = (*mf_spmd_input)[mfi].const_array();
             Print() << "[NOAHMP_SPMD] pack first cell (i=" << i
                     << ", j=" << j
                     << "): T_PHY=" << noah_input_arr(i,j,0,NoahmpInputComp::t_phy)
@@ -346,8 +331,9 @@ NOAHMP::Advance_With_State (const int& lev,
     int done = 0;
     Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
     int ireq = 0;
-    for (int ib = 0; ib < static_cast<int>(noahmp_partner_ranks.size()); ++ib) {
-        auto const& fab = *noahmp_input_tmp[ib];
+    for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+        int ib = mfi.LocalIndex();
+        auto const& fab = (*mf_spmd_input)[mfi];
         MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
                   MPI_COMM_WORLD, &requests[ireq++]);
         MPI_Isend(fab.dataPtr(), static_cast<int>(fab.size()),
@@ -362,8 +348,9 @@ NOAHMP::Advance_With_State (const int& lev,
 
     requests.resize(noahmp_partner_ranks.size());
     ireq = 0;
-    for (int ib = 0; ib < static_cast<int>(noahmp_partner_ranks.size()); ++ib) {
-        auto& fab = *noahmp_output_tmp[ib];
+    for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+        int ib = mfi.LocalIndex();
+        auto& fab = (*mf_spmd_output)[mfi];
         MPI_Irecv(fab.dataPtr(), static_cast<int>(fab.size()),
                   ParallelDescriptor::Mpi_typemap<Real>::type(),
                   noahmp_partner_ranks[ib], SPMDOutputTag, MPI_COMM_WORLD,
@@ -374,7 +361,10 @@ NOAHMP::Advance_With_State (const int& lev,
         MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
     }
 
-    idb = 0;
+    // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
+    // layout first, then ParallelCopy back to ERF's native decomposition.
+    mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
+
     for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx  = mfi.tilebox();
         Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
@@ -397,7 +387,7 @@ NOAHMP::Advance_With_State (const int& lev,
         Array4<Real> t_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
         Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
         Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
-        Array4<Real> noah_output_arr = noahmp_output_tmp[idb]->array();
+        Array4<Real const> noah_output_arr = mf_erf_output->const_array(mfi);
 
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
@@ -415,8 +405,6 @@ NOAHMP::Advance_With_State (const int& lev,
             ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
             ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
         });
-
-        ++idb;
     }
 #else
     bool use_tiling = TilingIfNotGPU();
