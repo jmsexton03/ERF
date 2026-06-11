@@ -70,16 +70,24 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
 
     for (auto& n : noahmpio_vect) {
         if (325 >= n.its && 325 <= n.ite && 747 >= n.jts && 747 <= n.jte) {
-            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (325, 747) -> XLAND=" << n.XLAND(325, 747)
-                      << " IVGTYP=" << n.IVGTYP(325, 747)
-                      << " ISLTYP=" << n.ISLTYP(325, 747)
-                      << " TMN=" << n.TMN(325, 747) << std::endl;
+            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (325, 747) -> TSK=" << n.TSK(325, 747)
+                      << " SWDOWN=" << n.SWDOWN(325, 747)
+                      << " GLW=" << n.GLW(325, 747)
+                      << " COSZEN=" << n.COSZEN(325, 747)
+                      << " EMISS=" << n.EMISS(325, 747)
+                      << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(325, 1, 747)
+                      << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(325, 2, 747)
+                      << std::endl;
         }
         if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
-            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (570, 0) -> XLAND=" << n.XLAND(570, 0)
-                      << " IVGTYP=" << n.IVGTYP(570, 0)
-                      << " ISLTYP=" << n.ISLTYP(570, 0)
-                      << " TMN=" << n.TMN(570, 0) << std::endl;
+            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (570, 0) -> TSK=" << n.TSK(570, 0)
+                      << " SWDOWN=" << n.SWDOWN(570, 0)
+                      << " GLW=" << n.GLW(570, 0)
+                      << " COSZEN=" << n.COSZEN(570, 0)
+                      << " EMISS=" << n.EMISS(570, 0)
+                      << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(570, 1, 0)
+                      << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(570, 2, 0)
+                      << std::endl;
         }
     }
 
