@@ -68,6 +68,21 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
         comm_sub,
         /*write_land0=*/false);
 
+    for (auto& n : noahmpio_vect) {
+        if (325 >= n.its && 325 <= n.ite && 747 >= n.jts && 747 <= n.jte) {
+            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (325, 747) -> XLAND=" << n.XLAND(325, 747)
+                      << " IVGTYP=" << n.IVGTYP(325, 747)
+                      << " ISLTYP=" << n.ISLTYP(325, 747)
+                      << " TMN=" << n.TMN(325, 747) << std::endl;
+        }
+        if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
+            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (570, 0) -> XLAND=" << n.XLAND(570, 0)
+                      << " IVGTYP=" << n.IVGTYP(570, 0)
+                      << " ISLTYP=" << n.ISLTYP(570, 0)
+                      << " TMN=" << n.TMN(570, 0) << std::endl;
+        }
+    }
+
     std::cout << "NoahMP Rank " << myproc_sub
               << " successfully claimed by ERF Rank " << erf_partner_rank
               << " and initialized " << num_tiles << " tiles!" << std::endl;

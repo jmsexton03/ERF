@@ -217,6 +217,21 @@ NOAHMP::Init (const int& lev,
         ParallelDescriptor::Communicator(),
         /*write_land0=*/true);
 
+    for (auto& n : noahmpio_vect) {
+        if (325 >= n.its && 325 <= n.ite && 747 >= n.jts && 747 <= n.jte) {
+            amrex::Print() << "[AMReX ERF Init] (325, 747) -> XLAND=" << n.XLAND(325, 747)
+                           << " IVGTYP=" << n.IVGTYP(325, 747)
+                           << " ISLTYP=" << n.ISLTYP(325, 747)
+                           << " TMN=" << n.TMN(325, 747) << std::endl;
+        }
+        if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
+            amrex::Print() << "[AMReX ERF Init] (570, 0) -> XLAND=" << n.XLAND(570, 0)
+                           << " IVGTYP=" << n.IVGTYP(570, 0)
+                           << " ISLTYP=" << n.ISLTYP(570, 0)
+                           << " TMN=" << n.TMN(570, 0) << std::endl;
+        }
+    }
+
     AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
 
     Print() << "Noah-MP initialization completed" << std::endl;
