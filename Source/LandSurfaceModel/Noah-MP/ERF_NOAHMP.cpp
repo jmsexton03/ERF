@@ -387,6 +387,10 @@ NOAHMP::Advance_With_State (const int& lev,
         MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
     }
 
+    // Suspicious debug print commented out: direct probing of received MultiFab
+    // storage by global indices may be involved in the proc-6 failure we are
+    // chasing. Keep service-side host prints instead.
+    /*
     for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
         Array4<Real const> noah_output_arr = (*mf_spmd_output)[mfi].const_array();
@@ -398,11 +402,14 @@ NOAHMP::Advance_With_State (const int& lev,
                               << std::endl;
         }
     }
+    */
 
     // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
     // layout first, then ParallelCopy back to ERF's native decomposition.
     mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
 
+    // Suspicious debug print commented out for the same reason as SPMD RECV above.
+    /*
     for (MFIter mfi(*mf_erf_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
         Array4<Real const> noah_output_arr = (*mf_erf_output)[mfi].const_array();
@@ -414,6 +421,7 @@ NOAHMP::Advance_With_State (const int& lev,
                               << std::endl;
         }
     }
+    */
 
     for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx  = mfi.tilebox();
@@ -449,10 +457,13 @@ NOAHMP::Advance_With_State (const int& lev,
             tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
             tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+            /*
+            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             if (i == 570 && j == 0) {
                 AMREX_DEVICE_PRINTF("[AMReX UNPACK] (570, 0) EMISS from Noah = %g\n",
                                     noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss));
             }
+            */
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
             ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
@@ -575,10 +586,13 @@ NOAHMP::Advance_With_State (const int& lev,
 
             // RRTMGP variables
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+            /*
+            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             if (i == 570 && j == 0) {
                 amrex::AllPrint() << "[AMReX UNPACK] (570, 0) EMISS from Noah = "
                                   << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
             }
+            */
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
             ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);

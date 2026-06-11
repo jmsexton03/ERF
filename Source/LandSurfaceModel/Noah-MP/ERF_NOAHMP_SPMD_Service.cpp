@@ -159,6 +159,19 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
                     b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_nir)] = noah.ALBSFCDIFXY(i,2,j);
                 }
             }
+
+            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
+                std::cout << "[SPMD OUTPUT BUF] (570, 0)"
+                          << " TSK=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::tsk)]
+                          << " EMISS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::emiss)]
+                          << " ALBSFCDIR_VIS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_vis)]
+                          << " ALBSFCDIR_NIR=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_nir)]
+                          << " ALBSFCDIF_VIS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_vis)]
+                          << " ALBSFCDIF_NIR=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_nir)]
+                          << " HFX=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::hfx)]
+                          << " LH=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::lh)]
+                          << std::endl;
+            }
         }
 
         requests.resize(blocks.size());
