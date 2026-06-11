@@ -69,16 +69,6 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
         /*write_land0=*/false);
 
     for (auto& n : noahmpio_vect) {
-        if (325 >= n.its && 325 <= n.ite && 747 >= n.jts && 747 <= n.jte) {
-            std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (325, 747) -> TSK=" << n.TSK(325, 747)
-                      << " SWDOWN=" << n.SWDOWN(325, 747)
-                      << " GLW=" << n.GLW(325, 747)
-                      << " COSZEN=" << n.COSZEN(325, 747)
-                      << " EMISS=" << n.EMISS(325, 747)
-                      << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(325, 1, 747)
-                      << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(325, 2, 747)
-                      << std::endl;
-        }
         if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
             std::cout << "[NoahMP CPU Rank " << myproc_sub << "] (570, 0) -> TSK=" << n.TSK(570, 0)
                       << " SWDOWN=" << n.SWDOWN(570, 0)
@@ -131,19 +121,18 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
                 }
             }
 
-            if (325 >= b.ilo && 325 <= b.ihi && 747 >= b.jlo && 747 <= b.jhi) {
-                std::cout << "[CPU PRE-PHYSICS] (325, 747) EMISS = " << noah.EMISS(325, 747) << std::endl;
+            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
+                std::cout << "[CPU PRE-PHYSICS] (570, 0) EMISS = " << noah.EMISS(570, 0) << std::endl;
             }
 
             static bool printed_unpack_debug = false;
-            if (!printed_unpack_debug && b.ihi >= b.ilo && b.jhi >= b.jlo) {
-                const int i = b.ilo;
-                const int j = b.jlo;
-                std::cout << "[NOAHMP_SPMD] unpack first cell (i=" << i
-                          << ", j=" << j
-                          << "): T_PHY=" << noah.T_PHY(i,1,j)
-                          << " GLW=" << noah.GLW(i,j)
-                          << " SWDOWN=" << noah.SWDOWN(i,j)
+            if (!printed_unpack_debug &&
+                570 >= b.ilo && 570 <= b.ihi &&
+                0 >= b.jlo && 0 <= b.jhi) {
+                std::cout << "[NOAHMP_SPMD] unpack target cell (i=570, j=0)"
+                          << ": T_PHY=" << noah.T_PHY(570,1,0)
+                          << " GLW=" << noah.GLW(570,0)
+                          << " SWDOWN=" << noah.SWDOWN(570,0)
                           << std::endl;
                 printed_unpack_debug = true;
             }
@@ -152,8 +141,8 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
             noah.itimestep += 1;
             noah.DriverMain();
 
-            if (325 >= b.ilo && 325 <= b.ihi && 747 >= b.jlo && 747 <= b.jhi) {
-                std::cout << "[CPU POST-PHYSICS] (325, 747) EMISS = " << noah.EMISS(325, 747) << std::endl;
+            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
+                std::cout << "[CPU POST-PHYSICS] (570, 0) EMISS = " << noah.EMISS(570, 0) << std::endl;
             }
 
             for (int j = b.jlo; j <= b.jhi; ++j) {
