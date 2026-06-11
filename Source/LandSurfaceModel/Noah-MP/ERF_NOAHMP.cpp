@@ -387,6 +387,12 @@ NOAHMP::Advance_With_State (const int& lev,
         MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
     }
 
+    // Keep the ERF-side Noah-MP timestep state in sync with the service-side
+    // increment so the elapsed_time gate skips intermediate ERF steps.
+    for (auto& noah : noahmpio_vect) {
+        noah.itimestep += 1;
+    }
+
     // Suspicious debug print commented out: direct probing of received MultiFab
     // storage by global indices may be involved in the proc-6 failure we are
     // chasing. Keep service-side host prints instead.
