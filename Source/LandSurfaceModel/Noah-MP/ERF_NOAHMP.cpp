@@ -167,6 +167,12 @@ NOAHMP::Init (const int& lev,
         int remote_cpu_rank = ranks_other[mfi.index()];
         noahmp_partner_ranks.push_back(remote_cpu_rank);
 
+        // Only print for Rank 0 to avoid log spam.
+        if (amrex::ParallelDescriptor::MyProc() == 0) {
+            amrex::Print() << "[INIT SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
+                           << " -> Box=" << mfi.validbox() << std::endl;
+        }
+
         tiles.push_back(NoahTile2D{
             bx.smallEnd(0), bx.smallEnd(1),
             bx.bigEnd(0),   bx.bigEnd(1)
@@ -358,6 +364,13 @@ NOAHMP::Advance_With_State (const int& lev,
     for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
         int ib = mfi.LocalIndex();
         auto const& fab = (*mf_spmd_input)[mfi];
+
+        // Only print for Rank 0 to avoid log spam.
+        if (amrex::ParallelDescriptor::MyProc() == 0) {
+            amrex::Print() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
+                           << " -> Box=" << mfi.validbox() << std::endl;
+        }
+
         MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
                   MPI_COMM_WORLD, &requests[ireq++]);
         MPI_Isend(fab.dataPtr(), static_cast<int>(fab.size()),
@@ -423,6 +436,10 @@ NOAHMP::Advance_With_State (const int& lev,
             tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
             tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+            if (i == 325 && j == 747) {
+                amrex::Print() << "[AMReX UNPACK] (325, 747) EMISS from Noah = " 
+                               << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
+            }
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
             ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
@@ -545,6 +562,10 @@ NOAHMP::Advance_With_State (const int& lev,
 
             // RRTMGP variables
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+            if (i == 325 && j == 747) {
+                amrex::Print() << "[AMReX UNPACK] (325, 747) EMISS from Noah = " 
+                               << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
+            }
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
             ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);

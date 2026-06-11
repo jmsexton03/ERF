@@ -131,6 +131,10 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
                 }
             }
 
+            if (325 >= b.ilo && 325 <= b.ihi && 747 >= b.jlo && 747 <= b.jhi) {
+                std::cout << "[CPU PRE-PHYSICS] (325, 747) EMISS = " << noah.EMISS(325, 747) << std::endl;
+            }
+
             static bool printed_unpack_debug = false;
             if (!printed_unpack_debug && b.ihi >= b.ilo && b.jhi >= b.jlo) {
                 const int i = b.ilo;
@@ -147,6 +151,10 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
             // Run Physics
             noah.itimestep += 1;
             noah.DriverMain();
+
+            if (325 >= b.ilo && 325 <= b.ihi && 747 >= b.jlo && 747 <= b.jhi) {
+                std::cout << "[CPU POST-PHYSICS] (325, 747) EMISS = " << noah.EMISS(325, 747) << std::endl;
+            }
 
             for (int j = b.jlo; j <= b.jhi; ++j) {
                 for (int i = b.ilo; i <= b.ihi; ++i) {
