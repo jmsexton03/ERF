@@ -169,8 +169,8 @@ NOAHMP::Init (const int& lev,
 
         // Only print for Rank 0 to avoid log spam.
         if (amrex::ParallelDescriptor::MyProc() == 0) {
-            amrex::Print() << "[INIT SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
-                           << " -> Box=" << mfi.validbox() << std::endl;
+            amrex::AllPrint() << "[INIT SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
+                              << " -> Box=" << mfi.validbox() << std::endl;
         }
 
         tiles.push_back(NoahTile2D{
@@ -226,24 +226,24 @@ NOAHMP::Init (const int& lev,
 
     for (auto& n : noahmpio_vect) {
         if (325 >= n.its && 325 <= n.ite && 747 >= n.jts && 747 <= n.jte) {
-            amrex::Print() << "[AMReX ERF Init] (325, 747) -> TSK=" << n.TSK(325, 747)
-                           << " SWDOWN=" << n.SWDOWN(325, 747)
-                           << " GLW=" << n.GLW(325, 747)
-                           << " COSZEN=" << n.COSZEN(325, 747)
-                           << " EMISS=" << n.EMISS(325, 747)
-                           << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(325, 1, 747)
-                           << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(325, 2, 747)
-                           << std::endl;
+            amrex::AllPrint() << "[AMReX ERF Init] (325, 747) -> TSK=" << n.TSK(325, 747)
+                              << " SWDOWN=" << n.SWDOWN(325, 747)
+                              << " GLW=" << n.GLW(325, 747)
+                              << " COSZEN=" << n.COSZEN(325, 747)
+                              << " EMISS=" << n.EMISS(325, 747)
+                              << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(325, 1, 747)
+                              << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(325, 2, 747)
+                              << std::endl;
         }
         if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
-            amrex::Print() << "[AMReX ERF Init] (570, 0) -> TSK=" << n.TSK(570, 0)
-                           << " SWDOWN=" << n.SWDOWN(570, 0)
-                           << " GLW=" << n.GLW(570, 0)
-                           << " COSZEN=" << n.COSZEN(570, 0)
-                           << " EMISS=" << n.EMISS(570, 0)
-                           << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(570, 1, 0)
-                           << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(570, 2, 0)
-                           << std::endl;
+            amrex::AllPrint() << "[AMReX ERF Init] (570, 0) -> TSK=" << n.TSK(570, 0)
+                              << " SWDOWN=" << n.SWDOWN(570, 0)
+                              << " GLW=" << n.GLW(570, 0)
+                              << " COSZEN=" << n.COSZEN(570, 0)
+                              << " EMISS=" << n.EMISS(570, 0)
+                              << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(570, 1, 0)
+                              << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(570, 2, 0)
+                              << std::endl;
         }
     }
 
@@ -348,12 +348,12 @@ NOAHMP::Advance_With_State (const int& lev,
             const int i = bx.smallEnd(0);
             const int j = bx.smallEnd(1);
             Array4<Real const> noah_input_arr = (*mf_spmd_input)[mfi].const_array();
-            Print() << "[NOAHMP_SPMD] pack first cell (i=" << i
-                    << ", j=" << j
-                    << "): T_PHY=" << noah_input_arr(i,j,0,NoahmpInputComp::t_phy)
-                    << " GLW=" << noah_input_arr(i,j,0,NoahmpInputComp::glw)
-                    << " SWDOWN=" << noah_input_arr(i,j,0,NoahmpInputComp::swdown)
-                    << std::endl;
+            amrex::AllPrint() << "[NOAHMP_SPMD] pack first cell (i=" << i
+                              << ", j=" << j
+                              << "): T_PHY=" << noah_input_arr(i,j,0,NoahmpInputComp::t_phy)
+                              << " GLW=" << noah_input_arr(i,j,0,NoahmpInputComp::glw)
+                              << " SWDOWN=" << noah_input_arr(i,j,0,NoahmpInputComp::swdown)
+                              << std::endl;
             printed_pack_debug = true;
         }
     }
@@ -367,8 +367,8 @@ NOAHMP::Advance_With_State (const int& lev,
 
         // Only print for Rank 0 to avoid log spam.
         if (amrex::ParallelDescriptor::MyProc() == 0) {
-            amrex::Print() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
-                           << " -> Box=" << mfi.validbox() << std::endl;
+            amrex::AllPrint() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
+                              << " -> Box=" << mfi.validbox() << std::endl;
         }
 
         MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
@@ -398,9 +398,47 @@ NOAHMP::Advance_With_State (const int& lev,
         MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
     }
 
+    for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+        const Box& bx = mfi.validbox();
+        Array4<Real const> noah_output_arr = (*mf_spmd_output)[mfi].const_array();
+        if (bx.contains(IntVect(325, 747, 0))) {
+            amrex::AllPrint() << "[SPMD RECV] Rank " << amrex::ParallelDescriptor::MyProc()
+                              << ": Box=" << bx
+                              << " EMISS(325,747)="
+                              << noah_output_arr(325, 747, 0, NoahmpOutputComp::emiss)
+                              << std::endl;
+        }
+        if (bx.contains(IntVect(570, 0, 0))) {
+            amrex::AllPrint() << "[SPMD RECV] Rank " << amrex::ParallelDescriptor::MyProc()
+                              << ": Box=" << bx
+                              << " EMISS(570,0)="
+                              << noah_output_arr(570, 0, 0, NoahmpOutputComp::emiss)
+                              << std::endl;
+        }
+    }
+
     // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
     // layout first, then ParallelCopy back to ERF's native decomposition.
     mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
+
+    for (MFIter mfi(*mf_erf_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+        const Box& bx = mfi.validbox();
+        Array4<Real const> noah_output_arr = (*mf_erf_output)[mfi].const_array();
+        if (bx.contains(IntVect(325, 747, 0))) {
+            amrex::AllPrint() << "[ERF OUTPUT] Rank " << amrex::ParallelDescriptor::MyProc()
+                              << ": Box=" << bx
+                              << " EMISS(325,747)="
+                              << noah_output_arr(325, 747, 0, NoahmpOutputComp::emiss)
+                              << std::endl;
+        }
+        if (bx.contains(IntVect(570, 0, 0))) {
+            amrex::AllPrint() << "[ERF OUTPUT] Rank " << amrex::ParallelDescriptor::MyProc()
+                              << ": Box=" << bx
+                              << " EMISS(570,0)="
+                              << noah_output_arr(570, 0, 0, NoahmpOutputComp::emiss)
+                              << std::endl;
+        }
+    }
 
     for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
         Box bx  = mfi.tilebox();
@@ -437,8 +475,8 @@ NOAHMP::Advance_With_State (const int& lev,
             tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
             if (i == 325 && j == 747) {
-                amrex::Print() << "[AMReX UNPACK] (325, 747) EMISS from Noah = " 
-                               << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
+                AMREX_DEVICE_PRINTF("[AMReX UNPACK] (325, 747) EMISS from Noah = %g\n",
+                                    noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss));
             }
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
@@ -563,8 +601,8 @@ NOAHMP::Advance_With_State (const int& lev,
             // RRTMGP variables
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
             if (i == 325 && j == 747) {
-                amrex::Print() << "[AMReX UNPACK] (325, 747) EMISS from Noah = " 
-                               << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
+                amrex::AllPrint() << "[AMReX UNPACK] (325, 747) EMISS from Noah = "
+                                  << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
             }
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
