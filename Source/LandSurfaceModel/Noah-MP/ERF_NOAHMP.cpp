@@ -5,9 +5,7 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
-#include <AMReX_Arena.H>
 #include <AMReX_BLProfiler.H>
-#include <AMReX_FabArrayBase.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_NOAHMP_IO_Init.H>
@@ -22,20 +20,6 @@ constexpr int SPMDMetaBoxesTag = 101;
 constexpr int SPMDControlTag   = 200;
 constexpr int SPMDInputTag     = 300;
 constexpr int SPMDOutputTag    = 400;
-
-void
-PrintNoahmpArenaUsage (std::string const& label)
-{
-    amrex::Print() << "[" << label << "] Arena usage" << '\n';
-    amrex::Arena::PrintUsage(true);
-    amrex::Print() << "[" << label << "] FabArray tag bytes current/hwm: "
-                   << amrex::FabArrayBase::queryMemUsage(label) << " / "
-                   << amrex::FabArrayBase::queryMemUsageHWM(label) << '\n';
-    amrex::Print() << "[" << label << "] FabArray tag All current/hwm: "
-                   << amrex::FabArrayBase::queryMemUsage("All") << " / "
-                   << amrex::FabArrayBase::queryMemUsageHWM("All") << '\n';
-}
-
 }
 
 /* Initialize lsm data structures */
@@ -46,7 +30,6 @@ NOAHMP::Init (const int& lev,
               const Real& dt)
 {
     BL_PROFILE_REGION("NOAHMP::Init");
-    FabArrayBase::RegionTag noahmp_init_tag("NOAHMP::Init");
 
     m_dt   = dt;
     m_geom = geom;
@@ -193,12 +176,6 @@ NOAHMP::Init (const int& lev,
         int remote_cpu_rank = ranks_other[mfi.index()];
         noahmp_partner_ranks.push_back(remote_cpu_rank);
 
-        // Only print for Rank 0 to avoid log spam.
-        if (amrex::ParallelDescriptor::MyProc() == 0) {
-            amrex::AllPrint() << "[INIT SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
-                              << " -> Box=" << mfi.validbox() << std::endl;
-        }
-
         tiles.push_back(NoahTile2D{
             bx.smallEnd(0), bx.smallEnd(1),
             bx.bigEnd(0),   bx.bigEnd(1)
@@ -250,22 +227,8 @@ NOAHMP::Init (const int& lev,
         ParallelDescriptor::Communicator(),
         /*write_land0=*/true);
 
-    for (auto& n : noahmpio_vect) {
-        if (570 >= n.its && 570 <= n.ite && 0 >= n.jts && 0 <= n.jte) {
-            amrex::AllPrint() << "[AMReX ERF Init] (570, 0) -> TSK=" << n.TSK(570, 0)
-                              << " SWDOWN=" << n.SWDOWN(570, 0)
-                              << " GLW=" << n.GLW(570, 0)
-                              << " COSZEN=" << n.COSZEN(570, 0)
-                              << " EMISS=" << n.EMISS(570, 0)
-                              << " ALBSFCDIR_VIS=" << n.ALBSFCDIRXY(570, 1, 0)
-                              << " ALBSFCDIR_NIR=" << n.ALBSFCDIRXY(570, 2, 0)
-                              << std::endl;
-        }
-    }
-
     AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
 
-    PrintNoahmpArenaUsage("NOAHMP::Init");
     Print() << "Noah-MP initialization completed" << std::endl;
 
 };
@@ -306,7 +269,6 @@ NOAHMP::Advance_With_State (const int& lev,
                             const int& nstep)
 {
     BL_PROFILE_REGION("NOAHMP::Advance");
-    FabArrayBase::RegionTag noahmp_advance_tag("NOAHMP::Advance");
 
     // Verify we need to take another LSM step
     Real NOAH_time = static_cast<Real>(noahmpio_vect[0].itimestep-1) * static_cast<Real>(noahmpio_vect[0].DTBL);
@@ -329,7 +291,6 @@ NOAHMP::Advance_With_State (const int& lev,
 
     {
         BL_PROFILE_REGION("NOAHMP::Pack");
-        FabArrayBase::RegionTag noahmp_pack_tag("NOAHMP::Pack");
 
         for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
             Box bx = mfi.tilebox();
@@ -363,30 +324,10 @@ NOAHMP::Advance_With_State (const int& lev,
         Gpu::streamSynchronize();
         mf_spmd_input->ParallelCopy(*mf_erf_input, 0, 0, NoahmpInputComp::NumComps);
         Gpu::streamSynchronize();
-
-        static bool printed_pack_debug = false;
-        if (!printed_pack_debug && mf_spmd_input) {
-            for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-                const Box& bx = mfi.validbox();
-                if (!bx.contains(IntVect(570, 0, 0))) { continue; }
-
-                Array4<Real const> noah_input_arr = (*mf_spmd_input)[mfi].const_array();
-                amrex::AllPrint() << "[NOAHMP_SPMD] pack target cell (i=570, j=0)"
-                                  << ": T_PHY=" << noah_input_arr(570,0,0,NoahmpInputComp::t_phy)
-                                  << " GLW=" << noah_input_arr(570,0,0,NoahmpInputComp::glw)
-                                  << " SWDOWN=" << noah_input_arr(570,0,0,NoahmpInputComp::swdown)
-                                  << std::endl;
-                printed_pack_debug = true;
-                break;
-            }
-        }
-
-        PrintNoahmpArenaUsage("NOAHMP::Pack");
     }
 
     {
         BL_PROFILE_REGION("NOAHMP::MPIExchange");
-        FabArrayBase::RegionTag noahmp_mpi_tag("NOAHMP::MPIExchange");
 
         int done = 0;
         Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
@@ -394,12 +335,6 @@ NOAHMP::Advance_With_State (const int& lev,
         for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
             int ib = mfi.LocalIndex();
             auto const& fab = (*mf_spmd_input)[mfi];
-
-            // Only print for Rank 0 to avoid log spam.
-            if (amrex::ParallelDescriptor::MyProc() == 0) {
-                amrex::AllPrint() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
-                                  << " -> Box=" << mfi.validbox() << std::endl;
-            }
 
             MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
                       MPI_COMM_WORLD, &requests[ireq++]);
@@ -427,8 +362,6 @@ NOAHMP::Advance_With_State (const int& lev,
             Vector<MPI_Status> statuses(requests.size());
             MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
         }
-
-        PrintNoahmpArenaUsage("NOAHMP::MPIExchange");
     }
 
     // Keep the ERF-side Noah-MP timestep state in sync with the service-side
@@ -437,45 +370,12 @@ NOAHMP::Advance_With_State (const int& lev,
         noah.itimestep += 1;
     }
 
-    // Suspicious debug print commented out: direct probing of received MultiFab
-    // storage by global indices may be involved in the proc-6 failure we are
-    // chasing. Keep service-side host prints instead.
-    /*
-    for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.validbox();
-        Array4<Real const> noah_output_arr = (*mf_spmd_output)[mfi].const_array();
-        if (bx.contains(IntVect(570, 0, 0))) {
-            amrex::AllPrint() << "[SPMD RECV] Rank " << amrex::ParallelDescriptor::MyProc()
-                              << ": Box=" << bx
-                              << " EMISS(570,0)="
-                              << noah_output_arr(570, 0, 0, NoahmpOutputComp::emiss)
-                              << std::endl;
-        }
-    }
-    */
-
     {
         BL_PROFILE_REGION("NOAHMP::Unpack");
-        FabArrayBase::RegionTag noahmp_unpack_tag("NOAHMP::Unpack");
 
         // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
         // layout first, then ParallelCopy back to ERF's native decomposition.
         mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
-
-    // Suspicious debug print commented out for the same reason as SPMD RECV above.
-    /*
-    for (MFIter mfi(*mf_erf_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.validbox();
-        Array4<Real const> noah_output_arr = (*mf_erf_output)[mfi].const_array();
-        if (bx.contains(IntVect(570, 0, 0))) {
-            amrex::AllPrint() << "[ERF OUTPUT] Rank " << amrex::ParallelDescriptor::MyProc()
-                              << ": Box=" << bx
-                              << " EMISS(570,0)="
-                              << noah_output_arr(570, 0, 0, NoahmpOutputComp::emiss)
-                              << std::endl;
-        }
-    }
-    */
 
         for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
             Box bx  = mfi.tilebox();
@@ -518,8 +418,6 @@ NOAHMP::Advance_With_State (const int& lev,
                 ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
             });
         }
-
-        PrintNoahmpArenaUsage("NOAHMP::Unpack");
     }
 #else
     bool use_tiling = TilingIfNotGPU();
@@ -569,7 +467,6 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Pack");
-            FabArrayBase::RegionTag noahmp_pack_tag("NOAHMP::Pack");
 
             // Copy forcing data from ERF to Noahmp.
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -604,7 +501,6 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Physics");
-            FabArrayBase::RegionTag noahmp_physics_tag("NOAHMP::Physics");
 
             // Call the noahmpio driver code. This runs the land model forcing for
             // each object in noahmpio_vect that represent a block in the domain.
@@ -614,7 +510,6 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Unpack");
-            FabArrayBase::RegionTag noahmp_unpack_tag("NOAHMP::Unpack");
 
             // Copy results from NoahmpIO back to temporary arrays
             LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
@@ -651,13 +546,6 @@ NOAHMP::Advance_With_State (const int& lev,
 
             // RRTMGP variables
             TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
-            /*
-            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
-            if (i == 570 && j == 0) {
-                amrex::AllPrint() << "[AMReX UNPACK] (570, 0) EMISS from Noah = "
-                                  << noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss) << std::endl;
-            }
-            */
             EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
             ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
             ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
@@ -666,7 +554,6 @@ NOAHMP::Advance_With_State (const int& lev,
         });
     }
 
-    PrintNoahmpArenaUsage("NOAHMP::Advance");
 #endif
 
     // Fill the ghost cells

@@ -121,29 +121,9 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
                 }
             }
 
-            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
-                std::cout << "[CPU PRE-PHYSICS] (570, 0) EMISS = " << noah.EMISS(570, 0) << std::endl;
-            }
-
-            static bool printed_unpack_debug = false;
-            if (!printed_unpack_debug &&
-                570 >= b.ilo && 570 <= b.ihi &&
-                0 >= b.jlo && 0 <= b.jhi) {
-                std::cout << "[NOAHMP_SPMD] unpack target cell (i=570, j=0)"
-                          << ": T_PHY=" << noah.T_PHY(570,1,0)
-                          << " GLW=" << noah.GLW(570,0)
-                          << " SWDOWN=" << noah.SWDOWN(570,0)
-                          << std::endl;
-                printed_unpack_debug = true;
-            }
-
             // Run Physics
             noah.itimestep += 1;
             noah.DriverMain();
-
-            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
-                std::cout << "[CPU POST-PHYSICS] (570, 0) EMISS = " << noah.EMISS(570, 0) << std::endl;
-            }
 
             for (int j = b.jlo; j <= b.jhi; ++j) {
                 for (int i = b.ilo; i <= b.ihi; ++i) {
@@ -158,19 +138,6 @@ void RunNOAHMPSPMDService(MPI_Comm comm_sub)
                     b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_vis)] = noah.ALBSFCDIFXY(i,1,j);
                     b.output[slab_index(i,j,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_nir)] = noah.ALBSFCDIFXY(i,2,j);
                 }
-            }
-
-            if (570 >= b.ilo && 570 <= b.ihi && 0 >= b.jlo && 0 <= b.jhi) {
-                std::cout << "[SPMD OUTPUT BUF] (570, 0)"
-                          << " TSK=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::tsk)]
-                          << " EMISS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::emiss)]
-                          << " ALBSFCDIR_VIS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_vis)]
-                          << " ALBSFCDIR_NIR=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdir_nir)]
-                          << " ALBSFCDIF_VIS=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_vis)]
-                          << " ALBSFCDIF_NIR=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::albsfcdif_nir)]
-                          << " HFX=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::hfx)]
-                          << " LH=" << b.output[slab_index(570,0,b.ilo,b.jlo,nx,ny,NoahmpOutputComp::lh)]
-                          << std::endl;
             }
         }
 
