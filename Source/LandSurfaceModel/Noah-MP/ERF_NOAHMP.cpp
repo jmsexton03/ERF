@@ -5,7 +5,7 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
-#include <AMReX_TinyProfiler.H>
+#include <AMReX_BLProfiler.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_NOAHMP_IO_Init.H>
@@ -30,7 +30,7 @@ NOAHMP::Init (const int& lev,
               const Geometry& geom,
               const Real& dt)
 {
-    amrex::TinyProfileRegion tpr_noahmp_init("NOAHMP::Init");
+    BL_PROFILE_REGION("NOAHMP::Init");
 
     m_dt   = dt;
     m_geom = geom;
@@ -280,7 +280,7 @@ NOAHMP::Advance_With_State (const int& lev,
                             const Real& dt,
                             const int& nstep)
 {
-    amrex::TinyProfileRegion tpr_noahmp_advance("NOAHMP::Advance");
+    BL_PROFILE_REGION("NOAHMP::Advance");
 
     // Verify we need to take another LSM step
     Real NOAH_time = static_cast<Real>(noahmpio_vect[0].itimestep-1) * static_cast<Real>(noahmpio_vect[0].DTBL);
@@ -302,7 +302,7 @@ NOAHMP::Advance_With_State (const int& lev,
     AMREX_ALWAYS_ASSERT(mf_spmd_input && mf_spmd_output);
 
     {
-        amrex::TinyProfileRegion tpr_noahmp_pack("NOAHMP::Pack");
+        BL_PROFILE_REGION("NOAHMP::Pack");
 
         for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
             Box bx = mfi.tilebox();
@@ -356,7 +356,7 @@ NOAHMP::Advance_With_State (const int& lev,
     }
 
     {
-        amrex::TinyProfileRegion tpr_noahmp_mpi("NOAHMP::MPIExchange");
+        BL_PROFILE_REGION("NOAHMP::MPIExchange");
 
         int done = 0;
         Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
@@ -423,7 +423,7 @@ NOAHMP::Advance_With_State (const int& lev,
     */
 
     {
-        amrex::TinyProfileRegion tpr_noahmp_unpack("NOAHMP::Unpack");
+        BL_PROFILE_REGION("NOAHMP::Unpack");
 
         // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
         // layout first, then ParallelCopy back to ERF's native decomposition.
@@ -533,7 +533,7 @@ NOAHMP::Advance_With_State (const int& lev,
         Array4<Real> noah_output_arr =  noahmp_output_tmp[idb]->array();
 
         {
-            amrex::TinyProfileRegion tpr_noahmp_pack("NOAHMP::Pack");
+            BL_PROFILE_REGION("NOAHMP::Pack");
 
             // Copy forcing data from ERF to Noahmp.
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -567,7 +567,7 @@ NOAHMP::Advance_With_State (const int& lev,
         }
 
         {
-            amrex::TinyProfileRegion tpr_noahmp_physics("NOAHMP::Physics");
+            BL_PROFILE_REGION("NOAHMP::Physics");
 
             // Call the noahmpio driver code. This runs the land model forcing for
             // each object in noahmpio_vect that represent a block in the domain.
@@ -576,7 +576,7 @@ NOAHMP::Advance_With_State (const int& lev,
         }
 
         {
-            amrex::TinyProfileRegion tpr_noahmp_unpack("NOAHMP::Unpack");
+            BL_PROFILE_REGION("NOAHMP::Unpack");
 
             // Copy results from NoahmpIO back to temporary arrays
             LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
