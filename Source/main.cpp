@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -29,6 +30,8 @@ using namespace amrex;
 
 namespace {
 
+constexpr bool kAbortOnGpuAwareMpi = false;
+
 int find_dashdash (int argc, char* argv[])
 {
     for (int i = 1; i < argc; ++i) {
@@ -37,6 +40,22 @@ int find_dashdash (int argc, char* argv[])
         }
     }
     return argc;
+}
+
+int parse_n_erf_ranks (int argc, char* argv[])
+{
+    const int dd = find_dashdash(argc, argv);
+    if (dd >= argc - 1) {
+        return 0;
+    }
+
+    int n_erf_ranks = 0;
+    std::istringstream iss(argv[dd + 1]);
+    iss >> n_erf_ranks;
+    if (!iss) {
+        return 0;
+    }
+    return n_erf_ranks;
 }
 
 }
@@ -151,6 +170,34 @@ int main (int argc, char* argv[])
     // Node-aware SPMD Communicator Splitting
     // ---------------------------------------------------------
 
+    const int n_erf_ranks = parse_n_erf_ranks(argc, argv);
+    if (n_erf_ranks <= 0 || n_erf_ranks > nprocs_world || (nprocs_world % n_erf_ranks) != 0) {
+        if (myproc_world == 0) {
+            std::cerr << "Invalid SPMD split: '-- N_ERF' must satisfy 0 < N_ERF <= "
+                      << nprocs_world << " and total MPI ranks % N_ERF == 0.\n";
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    const int stride = nprocs_world / n_erf_ranks;
+    const bool is_erf_rank = ((myproc_world % stride) == 0);
+    const int color = is_erf_rank ? 0 : 1; // 0=ERF, 1=NoahMP
+
+    if (myproc_world == 0 && n_erf_ranks < nprocs_world) {
+        std::cerr << "[SPMD INIT] WARNING: service-rank GPU masking is being evaluated after MPI_Init; "
+                  << "CUDA-aware MPI may already have created GPU contexts on service ranks. "
+                  << "Use launcher-level masking or pre-MPI masking for guaranteed isolation.\n";
+    }
+
+    if (myproc_world == 0) {
+        std::cout << "\n=======================================================\n";
+        std::cout << "[SPMD INIT] Total World Ranks: " << nprocs_world << "\n";
+        std::cout << "[SPMD INIT] ERF ranks requested: " << n_erf_ranks
+                  << ", stride: " << stride << "\n";
+        std::cout << "[SPMD INIT] ERF ranks = GPU-visible, Noah/service ranks = intended GPU-masked\n";
+        std::cout << "=======================================================\n\n";
+    }
+
     // 1. Identify ranks on the same physical node
     MPI_Comm local_comm;
     MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local_comm);
@@ -160,28 +207,6 @@ int main (int argc, char* argv[])
     MPI_Comm_rank(local_comm, &local_rank);
     MPI_Comm_size(local_comm, &local_size);
     MPI_Comm_free(&local_comm);
-
-    // 2. Define splitting policy to match ../amrex-spmd/main.cpp:
-    //    "-- N" means N total ERF/AMReX ranks globally.
-    int n_erf_ranks = 0;
-    {
-        const int dd = find_dashdash(argc, argv);
-        if (dd < argc - 1) {
-            std::istringstream iss(argv[dd + 1]);
-            iss >> n_erf_ranks;
-        }
-    }
-
-    if (n_erf_ranks == 0 || nprocs_world % n_erf_ranks != 0) {
-        if (myproc_world == 0) {
-            std::cerr << "Invalid SPMD split: '-- N' must provide a positive total ERF rank count"
-                      << " that evenly divides the total MPI ranks.\n";
-        }
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
-
-    const int color = ((myproc_world % (nprocs_world / n_erf_ranks)) == 0) ? 0 : 1; // 0=ERF, 1=NoahMP
-    const bool is_erf_rank = (color == 0);
 
     // 3. Create sub-communicators
     MPI_Comm comm_sub;
@@ -198,15 +223,6 @@ int main (int argc, char* argv[])
     MPI_Allreduce(&my_erf_count, &global_erf_ranks, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
     int global_noah_ranks = nprocs_world - global_erf_ranks;
 
-    // 5. Diagnostics
-    if (myproc_world == 0) {
-        std::cout << "\n=======================================================\n";
-        std::cout << "[SPMD INIT] Total World Ranks: " << nprocs_world << "\n";
-        std::cout << "[SPMD INIT] Policy: " << n_erf_ranks << " total ERF ranks globally\n";
-        std::cout << "[SPMD INIT] Global Split: " << global_erf_ranks << " ERF, "
-                  << global_noah_ranks << " NoahMP\n";
-        std::cout << "=======================================================\n\n";
-    }
     if (local_rank == 0) {
         std::cout << "[SPMD Node Leader] World Rank " << myproc_world
                   << " reports local node size = " << local_size << "\n";
@@ -247,15 +263,35 @@ int main (int argc, char* argv[])
     //    NOAHMP::ConfigureSPMD(global_erf_ranks, global_noah_ranks, is_erf_rank, partner_world_rank);
 
     if (is_erf_rank) {
-        const int dashdash = find_dashdash(argc, argv);
-        int erf_argc = dashdash;
-        char** erf_argv = argv;
+        auto enforce_gpu_aware_mpi_off = [myproc_world]() {
+            add_par();
+
+            amrex::ParmParse pp_amrex("amrex");
+
+            int use_gpu_aware_mpi = 0;
+            const bool has_user_value = pp_amrex.query("use_gpu_aware_mpi", use_gpu_aware_mpi);
+            if (has_user_value && use_gpu_aware_mpi != 0) {
+                if (kAbortOnGpuAwareMpi) {
+                    if (myproc_world == 0) {
+                        std::cerr << "ERROR: SPMD mode requires amrex.use_gpu_aware_mpi=0; "
+                                  << "user requested a nonzero value.\n";
+                    }
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+                } else if (myproc_world == 0) {
+                    std::cerr << "WARNING: SPMD mode forces amrex.use_gpu_aware_mpi=0; "
+                              << "overriding user-requested nonzero value.\n";
+                }
+            }
+
+            pp_amrex.remove("use_gpu_aware_mpi");
+            pp_amrex.add("use_gpu_aware_mpi", 0);
+        };
 
         if (myproc_sub == 0) {
             std::cout << "[SPMD][ERF] Initializing AMReX with " << nprocs_sub << " ranks.\n";
         }
 
-        amrex::Initialize(erf_argc, erf_argv, true, comm_sub, add_par);
+        amrex::Initialize(argc, argv, true, comm_sub, enforce_gpu_aware_mpi_off);
 
 #ifdef ERF_USE_KOKKOS
         if (!Kokkos::is_initialized()) {

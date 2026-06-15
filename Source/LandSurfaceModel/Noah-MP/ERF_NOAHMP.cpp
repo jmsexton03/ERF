@@ -159,11 +159,19 @@ NOAHMP::Init (const int& lev,
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(total_cpu_ranks > 0,
         "NOAHMP::Init requires at least one Noah-MP CPU rank for SPMD coupling.");
 
+    BoxList bl_lsm_2d;
+    for (const auto& bx_in : ba_lsm) {
+        Box bx = bx_in;
+        bx.makeSlab(2, klo);
+        bl_lsm_2d.push_back(bx);
+    }
+    BoxArray ba_lsm_2d(bl_lsm_2d);
+
     Box domain2d = amrex::makeSlab(domain, 2, klo);
     mf_erf_input = std::make_unique<MultiFab>(
-        ba_lsm, dm, NoahmpInputComp::NumComps, 0);
+        ba_lsm_2d, dm, NoahmpInputComp::NumComps, 0);
     mf_erf_output = std::make_unique<MultiFab>(
-        ba_lsm, dm, NoahmpOutputComp::NumComps, 0);
+        ba_lsm_2d, dm, NoahmpOutputComp::NumComps, 0);
 
     BoxArray spmd_ba = amrex::decompose(domain2d, total_cpu_ranks, {true, true, false});
     AMREX_ALWAYS_ASSERT(static_cast<int>(spmd_ba.size()) == total_cpu_ranks);
