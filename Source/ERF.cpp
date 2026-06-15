@@ -12,6 +12,7 @@
 #include "ERF.H"
 #include "AMReX_buildInfo.H"
 #include "AMReX_Random.H"
+#include "AMReX_TinyProfiler.H"
 #include "AMReX_WriteEBSurface.H"
 #include "AMReX_EB2_IF_Box.H"
 #include "AMReX_EB2_IF_Sphere.H"
@@ -620,6 +621,8 @@ ERF::Evolve ()
     //      for finer levels (with or without subcycling)
     for (int step = istep[0]; (step < max_step) && (start_time+cur_time < stop_time); ++step)
     {
+        amrex::TinyProfileRegion tpr_coarse_step("ERF::CoarseStep");
+
         if (use_datetime) {
             Print() << "\n" << getTimestamp(start_time+cur_time, datetime_format)
                     << " (" << cur_time << " s elapsed)" << std::endl;

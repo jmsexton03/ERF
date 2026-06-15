@@ -5,6 +5,7 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_TinyProfiler.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_NOAHMP_IO_Init.H>
@@ -29,6 +30,7 @@ NOAHMP::Init (const int& lev,
               const Geometry& geom,
               const Real& dt)
 {
+    amrex::TinyProfileRegion tpr_noahmp_init("NOAHMP::Init");
 
     m_dt   = dt;
     m_geom = geom;
@@ -278,6 +280,8 @@ NOAHMP::Advance_With_State (const int& lev,
                             const Real& dt,
                             const int& nstep)
 {
+    amrex::TinyProfileRegion tpr_noahmp_advance("NOAHMP::Advance");
+
     // Verify we need to take another LSM step
     Real NOAH_time = static_cast<Real>(noahmpio_vect[0].itimestep-1) * static_cast<Real>(noahmpio_vect[0].DTBL);
     if (elapsed_time < NOAH_time) { return; }
@@ -297,94 +301,102 @@ NOAHMP::Advance_With_State (const int& lev,
     AMREX_ALWAYS_ASSERT(mf_erf_input && mf_erf_output);
     AMREX_ALWAYS_ASSERT(mf_spmd_input && mf_spmd_output);
 
-    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
-        Box bx = mfi.tilebox();
-        if (bx.smallEnd(2) != klo) { continue; }
-        bx.makeSlab(2,klo);
+    {
+        amrex::TinyProfileRegion tpr_noahmp_pack("NOAHMP::Pack");
 
-        const Array4<const Real>& U_PHY  = xvel_in.const_array(mfi);
-        const Array4<const Real>& V_PHY  = yvel_in.const_array(mfi);
-        const Array4<const Real>& CONS   = cons_in.const_array(mfi);
-        const Array4<const Real>& SWDOWN = lsm_fab_data[LsmData_NOAHMP::sw_flux_dn]->const_array(mfi);
-        const Array4<const Real>& GLW    = lsm_fab_data[LsmData_NOAHMP::lw_flux_dn]->const_array(mfi);
-        const Array4<const Real>& COSZEN = lsm_fab_data[LsmData_NOAHMP::cos_zenith_angle]->const_array(mfi);
-        Array4<Real> noah_input_arr = mf_erf_input->array(mfi);
+        for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
+            Box bx = mfi.tilebox();
+            if (bx.smallEnd(2) != klo) { continue; }
+            bx.makeSlab(2,klo);
 
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-        {
-            Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
-            noah_input_arr(i,j,0,NoahmpInputComp::u_phy)   = myhalf*(U_PHY(i,j,k)+U_PHY(i+1,j,k));
-            noah_input_arr(i,j,0,NoahmpInputComp::v_phy)   = myhalf*(V_PHY(i,j,k)+V_PHY(i  ,j+1,k));
-            noah_input_arr(i,j,0,NoahmpInputComp::t_phy)   = getTgivenRandRTh(CONS(i,j,k,Rho_comp),CONS(i,j,k,RhoTheta_comp),qv);
-            noah_input_arr(i,j,0,NoahmpInputComp::qv_curr) = qv;
-            noah_input_arr(i,j,0,NoahmpInputComp::p8w)     = getPgivenRTh(CONS(i,j,k,RhoTheta_comp),qv);
-            noah_input_arr(i,j,0,NoahmpInputComp::swdown)  = SWDOWN(i,j,0);
-            noah_input_arr(i,j,0,NoahmpInputComp::glw)     = GLW(i,j,0);
-            noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
-        });
+            const Array4<const Real>& U_PHY  = xvel_in.const_array(mfi);
+            const Array4<const Real>& V_PHY  = yvel_in.const_array(mfi);
+            const Array4<const Real>& CONS   = cons_in.const_array(mfi);
+            const Array4<const Real>& SWDOWN = lsm_fab_data[LsmData_NOAHMP::sw_flux_dn]->const_array(mfi);
+            const Array4<const Real>& GLW    = lsm_fab_data[LsmData_NOAHMP::lw_flux_dn]->const_array(mfi);
+            const Array4<const Real>& COSZEN = lsm_fab_data[LsmData_NOAHMP::cos_zenith_angle]->const_array(mfi);
+            Array4<Real> noah_input_arr = mf_erf_input->array(mfi);
+
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
+                noah_input_arr(i,j,0,NoahmpInputComp::u_phy)   = myhalf*(U_PHY(i,j,k)+U_PHY(i+1,j,k));
+                noah_input_arr(i,j,0,NoahmpInputComp::v_phy)   = myhalf*(V_PHY(i,j,k)+V_PHY(i  ,j+1,k));
+                noah_input_arr(i,j,0,NoahmpInputComp::t_phy)   = getTgivenRandRTh(CONS(i,j,k,Rho_comp),CONS(i,j,k,RhoTheta_comp),qv);
+                noah_input_arr(i,j,0,NoahmpInputComp::qv_curr) = qv;
+                noah_input_arr(i,j,0,NoahmpInputComp::p8w)     = getPgivenRTh(CONS(i,j,k,RhoTheta_comp),qv);
+                noah_input_arr(i,j,0,NoahmpInputComp::swdown)  = SWDOWN(i,j,0);
+                noah_input_arr(i,j,0,NoahmpInputComp::glw)     = GLW(i,j,0);
+                noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
+            });
+        }
+
+        // Match the mf_lo path in amrex-spmd: pack on ERF's native layout, then
+        // let ParallelCopy move the overlapping regions into the pinned SPMD layout.
+        Gpu::streamSynchronize();
+        mf_spmd_input->ParallelCopy(*mf_erf_input, 0, 0, NoahmpInputComp::NumComps);
+        Gpu::streamSynchronize();
+
+        static bool printed_pack_debug = false;
+        if (!printed_pack_debug && mf_spmd_input) {
+            for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+                const Box& bx = mfi.validbox();
+                if (!bx.contains(IntVect(570, 0, 0))) { continue; }
+
+                Array4<Real const> noah_input_arr = (*mf_spmd_input)[mfi].const_array();
+                amrex::AllPrint() << "[NOAHMP_SPMD] pack target cell (i=570, j=0)"
+                                  << ": T_PHY=" << noah_input_arr(570,0,0,NoahmpInputComp::t_phy)
+                                  << " GLW=" << noah_input_arr(570,0,0,NoahmpInputComp::glw)
+                                  << " SWDOWN=" << noah_input_arr(570,0,0,NoahmpInputComp::swdown)
+                                  << std::endl;
+                printed_pack_debug = true;
+                break;
+            }
+        }
     }
 
-    // Match the mf_lo path in amrex-spmd: pack on ERF's native layout, then
-    // let ParallelCopy move the overlapping regions into the pinned SPMD layout.
-    Gpu::streamSynchronize();
-    mf_spmd_input->ParallelCopy(*mf_erf_input, 0, 0, NoahmpInputComp::NumComps);
-    Gpu::streamSynchronize();
+    {
+        amrex::TinyProfileRegion tpr_noahmp_mpi("NOAHMP::MPIExchange");
 
-    static bool printed_pack_debug = false;
-    if (!printed_pack_debug && mf_spmd_input) {
+        int done = 0;
+        Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
+        int ireq = 0;
         for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-            const Box& bx = mfi.validbox();
-            if (!bx.contains(IntVect(570, 0, 0))) { continue; }
+            int ib = mfi.LocalIndex();
+            auto const& fab = (*mf_spmd_input)[mfi];
 
-            Array4<Real const> noah_input_arr = (*mf_spmd_input)[mfi].const_array();
-            amrex::AllPrint() << "[NOAHMP_SPMD] pack target cell (i=570, j=0)"
-                              << ": T_PHY=" << noah_input_arr(570,0,0,NoahmpInputComp::t_phy)
-                              << " GLW=" << noah_input_arr(570,0,0,NoahmpInputComp::glw)
-                              << " SWDOWN=" << noah_input_arr(570,0,0,NoahmpInputComp::swdown)
-                              << std::endl;
-            printed_pack_debug = true;
-            break;
+            // Only print for Rank 0 to avoid log spam.
+            if (amrex::ParallelDescriptor::MyProc() == 0) {
+                amrex::AllPrint() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
+                                  << " -> Box=" << mfi.validbox() << std::endl;
+            }
+
+            MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
+                      MPI_COMM_WORLD, &requests[ireq++]);
+            MPI_Isend(fab.dataPtr(), static_cast<int>(fab.size()),
+                      ParallelDescriptor::Mpi_typemap<Real>::type(),
+                      noahmp_partner_ranks[ib], SPMDInputTag, MPI_COMM_WORLD,
+                      &requests[ireq++]);
         }
-    }
-
-    int done = 0;
-    Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
-    int ireq = 0;
-    for (MFIter mfi(*mf_spmd_input, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-        int ib = mfi.LocalIndex();
-        auto const& fab = (*mf_spmd_input)[mfi];
-
-        // Only print for Rank 0 to avoid log spam.
-        if (amrex::ParallelDescriptor::MyProc() == 0) {
-            amrex::AllPrint() << "[ADVANCE SEQ] AMReX Rank 0: mfi.index()=" << mfi.index()
-                              << " -> Box=" << mfi.validbox() << std::endl;
+        if (!requests.empty()) {
+            Vector<MPI_Status> statuses(requests.size());
+            MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
         }
 
-        MPI_Isend(&done, 1, MPI_INT, noahmp_partner_ranks[ib], SPMDControlTag,
-                  MPI_COMM_WORLD, &requests[ireq++]);
-        MPI_Isend(fab.dataPtr(), static_cast<int>(fab.size()),
-                  ParallelDescriptor::Mpi_typemap<Real>::type(),
-                  noahmp_partner_ranks[ib], SPMDInputTag, MPI_COMM_WORLD,
-                  &requests[ireq++]);
-    }
-    if (!requests.empty()) {
-        Vector<MPI_Status> statuses(requests.size());
-        MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
-    }
-
-    requests.resize(noahmp_partner_ranks.size());
-    ireq = 0;
-    for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
-        int ib = mfi.LocalIndex();
-        auto& fab = (*mf_spmd_output)[mfi];
-        MPI_Irecv(fab.dataPtr(), static_cast<int>(fab.size()),
-                  ParallelDescriptor::Mpi_typemap<Real>::type(),
-                  noahmp_partner_ranks[ib], SPMDOutputTag, MPI_COMM_WORLD,
-                  &requests[ireq++]);
-    }
-    if (!requests.empty()) {
-        Vector<MPI_Status> statuses(requests.size());
-        MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
+        requests.resize(noahmp_partner_ranks.size());
+        ireq = 0;
+        for (MFIter mfi(*mf_spmd_output, MFItInfo().DisableDeviceSync()); mfi.isValid(); ++mfi) {
+            int ib = mfi.LocalIndex();
+            auto& fab = (*mf_spmd_output)[mfi];
+            MPI_Irecv(fab.dataPtr(), static_cast<int>(fab.size()),
+                      ParallelDescriptor::Mpi_typemap<Real>::type(),
+                      noahmp_partner_ranks[ib], SPMDOutputTag, MPI_COMM_WORLD,
+                      &requests[ireq++]);
+        }
+        if (!requests.empty()) {
+            Vector<MPI_Status> statuses(requests.size());
+            MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
+        }
     }
 
     // Keep the ERF-side Noah-MP timestep state in sync with the service-side
@@ -410,9 +422,12 @@ NOAHMP::Advance_With_State (const int& lev,
     }
     */
 
-    // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
-    // layout first, then ParallelCopy back to ERF's native decomposition.
-    mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
+    {
+        amrex::TinyProfileRegion tpr_noahmp_unpack("NOAHMP::Unpack");
+
+        // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
+        // layout first, then ParallelCopy back to ERF's native decomposition.
+        mf_erf_output->ParallelCopy(*mf_spmd_output, 0, 0, NoahmpOutputComp::NumComps);
 
     // Suspicious debug print commented out for the same reason as SPMD RECV above.
     /*
@@ -429,53 +444,47 @@ NOAHMP::Advance_With_State (const int& lev,
     }
     */
 
-    for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
-        Box bx  = mfi.tilebox();
-        Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
-        if (bx.smallEnd(2) != klo) { continue; }
+        for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
+            Box bx  = mfi.tilebox();
+            Box gbx = mfi.tilebox(IntVect(0,0,0),IntVect(1,1,0));
+            if (bx.smallEnd(2) != klo) { continue; }
 
-        bx.makeSlab(2,klo);
-        gbx.makeSlab(2,klo);
+            bx.makeSlab(2,klo);
+            gbx.makeSlab(2,klo);
 
-        int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
-        int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
+            int i_lo = bx.smallEnd(0); int i_hi = bx.bigEnd(0);
+            int j_lo = bx.smallEnd(1); int j_hi = bx.bigEnd(1);
 
-        const Array4<const Real>& CONS = cons_in.const_array(mfi);
-        Array4<Real> TSK           = lsm_fab_data[LsmData_NOAHMP::t_sfc]->array(mfi);
-        Array4<Real> EMISS         = lsm_fab_data[LsmData_NOAHMP::sfc_emis]->array(mfi);
-        Array4<Real> ALBSFCDIR_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_vis]->array(mfi);
-        Array4<Real> ALBSFCDIR_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_nir]->array(mfi);
-        Array4<Real> ALBSFCDIF_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_vis]->array(mfi);
-        Array4<Real> ALBSFCDIF_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_nir]->array(mfi);
-        Array4<Real> q_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::q_flux]->array(mfi);
-        Array4<Real> t_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
-        Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
-        Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
-        Array4<Real const> noah_output_arr = mf_erf_output->const_array(mfi);
+            const Array4<const Real>& CONS = cons_in.const_array(mfi);
+            Array4<Real> TSK           = lsm_fab_data[LsmData_NOAHMP::t_sfc]->array(mfi);
+            Array4<Real> EMISS         = lsm_fab_data[LsmData_NOAHMP::sfc_emis]->array(mfi);
+            Array4<Real> ALBSFCDIR_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_vis]->array(mfi);
+            Array4<Real> ALBSFCDIR_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dir_nir]->array(mfi);
+            Array4<Real> ALBSFCDIF_VIS = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_vis]->array(mfi);
+            Array4<Real> ALBSFCDIF_NIR = lsm_fab_data[LsmData_NOAHMP::sfc_alb_dif_nir]->array(mfi);
+            Array4<Real> q_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::q_flux]->array(mfi);
+            Array4<Real> t_flux_arr    = lsm_fab_flux[LsmFlux_NOAHMP::t_flux]->array(mfi);
+            Array4<Real> tau13_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau13]->array(mfi);
+            Array4<Real> tau23_arr     = lsm_fab_flux[LsmFlux_NOAHMP::tau23]->array(mfi);
+            Array4<Real const> noah_output_arr = mf_erf_output->const_array(mfi);
 
-        ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-        {
-            int ii = std::min(std::max(i,i_lo),i_hi);
-            int jj = std::min(std::max(j,j_lo),j_hi);
+            ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                int ii = std::min(std::max(i,i_lo),i_hi);
+                int jj = std::min(std::max(j,j_lo),j_hi);
 
-            t_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::hfx)/(CONS(ii,jj,k,Rho_comp)*Cp_d);
-            q_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::lh)/(CONS(ii,jj,k,Rho_comp)*L_v);
-            tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
-            tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
-            TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
-            /*
-            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
-            if (i == 570 && j == 0) {
-                AMREX_DEVICE_PRINTF("[AMReX UNPACK] (570, 0) EMISS from Noah = %g\n",
-                                    noah_output_arr(ii, jj, 0, NoahmpOutputComp::emiss));
-            }
-            */
-            EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
-            ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
-            ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
-            ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
-            ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
-        });
+                t_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::hfx)/(CONS(ii,jj,k,Rho_comp)*Cp_d);
+                q_flux_arr(i,j,k)    = noah_output_arr(ii,jj,0,NoahmpOutputComp::lh)/(CONS(ii,jj,k,Rho_comp)*L_v);
+                tau13_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ew)/CONS(ii,jj,k,Rho_comp);
+                tau23_arr(i,j,k)     = noah_output_arr(ii,jj,0,NoahmpOutputComp::tau_ns)/CONS(ii,jj,k,Rho_comp);
+                TSK(i,j,0)           = noah_output_arr(ii,jj,0,NoahmpOutputComp::tsk);
+                EMISS(i,j,0)         = noah_output_arr(ii,jj,0,NoahmpOutputComp::emiss);
+                ALBSFCDIR_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_vis);
+                ALBSFCDIR_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdir_nir);
+                ALBSFCDIF_VIS(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_vis);
+                ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
+            });
+        }
     }
 #else
     bool use_tiling = TilingIfNotGPU();
@@ -523,55 +532,67 @@ NOAHMP::Advance_With_State (const int& lev,
         Array4<Real> noah_input_arr  =  noahmp_input_tmp[idb]->array();
         Array4<Real> noah_output_arr =  noahmp_output_tmp[idb]->array();
 
-        // Copy forcing data from ERF to Noahmp.
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
-            Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
-            noah_input_arr(i,j,0,NoahmpInputComp::u_phy)   = myhalf*(U_PHY(i,j,k)+U_PHY(i+1,j,k));
-            noah_input_arr(i,j,0,NoahmpInputComp::v_phy)   = myhalf*(V_PHY(i,j,k)+V_PHY(i  ,j+1,k));
-            noah_input_arr(i,j,0,NoahmpInputComp::t_phy)   = getTgivenRandRTh(CONS(i,j,k,Rho_comp),CONS(i,j,k,RhoTheta_comp),qv);
-            noah_input_arr(i,j,0,NoahmpInputComp::qv_curr) = qv;
-            noah_input_arr(i,j,0,NoahmpInputComp::p8w)     = getPgivenRTh(CONS(i,j,k,RhoTheta_comp),qv);
-            noah_input_arr(i,j,0,NoahmpInputComp::swdown)  = SWDOWN(i,j,0);
-            noah_input_arr(i,j,0,NoahmpInputComp::glw)     = GLW(i,j,0);
-            noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
-        });
+            amrex::TinyProfileRegion tpr_noahmp_pack("NOAHMP::Pack");
 
-        // Synchronize to ensure GPU kernel is complete before host access
-        Gpu::streamSynchronize();
+            // Copy forcing data from ERF to Noahmp.
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                Real qv = (is_moist) ? CONS(i,j,k,RhoQ1_comp)/CONS(i,j,k,Rho_comp) : zero;
+                noah_input_arr(i,j,0,NoahmpInputComp::u_phy)   = myhalf*(U_PHY(i,j,k)+U_PHY(i+1,j,k));
+                noah_input_arr(i,j,0,NoahmpInputComp::v_phy)   = myhalf*(V_PHY(i,j,k)+V_PHY(i  ,j+1,k));
+                noah_input_arr(i,j,0,NoahmpInputComp::t_phy)   = getTgivenRandRTh(CONS(i,j,k,Rho_comp),CONS(i,j,k,RhoTheta_comp),qv);
+                noah_input_arr(i,j,0,NoahmpInputComp::qv_curr) = qv;
+                noah_input_arr(i,j,0,NoahmpInputComp::p8w)     = getPgivenRTh(CONS(i,j,k,RhoTheta_comp),qv);
+                noah_input_arr(i,j,0,NoahmpInputComp::swdown)  = SWDOWN(i,j,0);
+                noah_input_arr(i,j,0,NoahmpInputComp::glw)     = GLW(i,j,0);
+                noah_input_arr(i,j,0,NoahmpInputComp::coszen)  = COSZEN(i,j,0);
+            });
 
-        // Now on the host, copy data to NoahmpIO arrays
-        LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
+            // Synchronize to ensure GPU kernel is complete before host access
+            Gpu::streamSynchronize();
+
+            // Now on the host, copy data to NoahmpIO arrays
+            LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
+            {
+                noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
+                noahmpio->V_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::v_phy);
+                noahmpio->T_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::t_phy);
+                noahmpio->QV_CURR(i,1,j) = noah_input_arr(i,j,0,NoahmpInputComp::qv_curr);
+                noahmpio->P8W(i,1,j)     = noah_input_arr(i,j,0,NoahmpInputComp::p8w);
+                noahmpio->SWDOWN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::swdown);
+                noahmpio->GLW(i,j)       = noah_input_arr(i,j,0,NoahmpInputComp::glw);
+                noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
+            });
+        }
+
         {
-            noahmpio->U_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::u_phy);
-            noahmpio->V_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::v_phy);
-            noahmpio->T_PHY(i,1,j)   = noah_input_arr(i,j,0,NoahmpInputComp::t_phy);
-            noahmpio->QV_CURR(i,1,j) = noah_input_arr(i,j,0,NoahmpInputComp::qv_curr);
-            noahmpio->P8W(i,1,j)     = noah_input_arr(i,j,0,NoahmpInputComp::p8w);
-            noahmpio->SWDOWN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::swdown);
-            noahmpio->GLW(i,j)       = noah_input_arr(i,j,0,NoahmpInputComp::glw);
-            noahmpio->COSZEN(i,j)    = noah_input_arr(i,j,0,NoahmpInputComp::coszen);
-        });
+            amrex::TinyProfileRegion tpr_noahmp_physics("NOAHMP::Physics");
 
-        // Call the noahmpio driver code. This runs the land model forcing for
-        // each object in noahmpio_vect that represent a block in the domain.
-        noahmpio->itimestep += 1;
-        noahmpio->DriverMain();
+            // Call the noahmpio driver code. This runs the land model forcing for
+            // each object in noahmpio_vect that represent a block in the domain.
+            noahmpio->itimestep += 1;
+            noahmpio->DriverMain();
+        }
 
-        // Copy results from NoahmpIO back to temporary arrays
-        LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
         {
-            noah_output_arr(i,j,0,NoahmpOutputComp::hfx)           = noahmpio->HFX(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::lh)            = noahmpio->LH(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::tau_ew)        = noahmpio->TAU_EW(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::tau_ns)        = noahmpio->TAU_NS(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::tsk)           = noahmpio->TSK(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::emiss)         = noahmpio->EMISS(i,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_vis) = noahmpio->ALBSFCDIRXY(i,1,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_nir) = noahmpio->ALBSFCDIRXY(i,2,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
-            noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
-        });
+            amrex::TinyProfileRegion tpr_noahmp_unpack("NOAHMP::Unpack");
+
+            // Copy results from NoahmpIO back to temporary arrays
+            LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
+            {
+                noah_output_arr(i,j,0,NoahmpOutputComp::hfx)           = noahmpio->HFX(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::lh)            = noahmpio->LH(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::tau_ew)        = noahmpio->TAU_EW(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::tau_ns)        = noahmpio->TAU_NS(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::tsk)           = noahmpio->TSK(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::emiss)         = noahmpio->EMISS(i,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_vis) = noahmpio->ALBSFCDIRXY(i,1,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdir_nir) = noahmpio->ALBSFCDIRXY(i,2,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_vis) = noahmpio->ALBSFCDIFXY(i,1,j);
+                noah_output_arr(i,j,0,NoahmpOutputComp::albsfcdif_nir) = noahmpio->ALBSFCDIFXY(i,2,j);
+            });
+        }
 
         // Copy forcing data from Noahmp to ERF
         ParallelFor(gbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
