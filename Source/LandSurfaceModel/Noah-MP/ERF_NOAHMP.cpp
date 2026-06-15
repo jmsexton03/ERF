@@ -142,9 +142,12 @@ NOAHMP::Init (const int& lev,
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(total_cpu_ranks > 0,
         "NOAHMP::Init requires at least one Noah-MP CPU rank for SPMD coupling.");
 
+    const int ba_lsm_height = ba_lsm.empty() ? 0 : ba_lsm[0].length(2);
+    Print() << "Noah-MP ba_lsm height in z = " << ba_lsm_height << std::endl;
+
     BoxList bl_lsm_2d;
-    for (const auto& bx_in : ba_lsm) {
-        Box bx = bx_in;
+    for (int ibox = 0; ibox < ba_lsm.size(); ++ibox) {
+        Box bx = ba_lsm[ibox];
         bx.makeSlab(2, klo);
         bl_lsm_2d.push_back(bx);
     }
