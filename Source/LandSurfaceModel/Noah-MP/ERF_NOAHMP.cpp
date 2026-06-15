@@ -5,7 +5,9 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_Print.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Arena.H>
 #include <AMReX_BLProfiler.H>
+#include <AMReX_FabArrayBase.H>
 
 #include <ERF_NOAHMP.H>
 #include <ERF_NOAHMP_IO_Init.H>
@@ -21,6 +23,19 @@ constexpr int SPMDControlTag   = 200;
 constexpr int SPMDInputTag     = 300;
 constexpr int SPMDOutputTag    = 400;
 
+void
+PrintNoahmpArenaUsage (std::string const& label)
+{
+    amrex::Print() << "[" << label << "] Arena usage" << '\n';
+    amrex::Arena::PrintUsage(true);
+    amrex::Print() << "[" << label << "] FabArray tag bytes current/hwm: "
+                   << amrex::FabArrayBase::queryMemUsage(label) << " / "
+                   << amrex::FabArrayBase::queryMemUsageHWM(label) << '\n';
+    amrex::Print() << "[" << label << "] FabArray tag All current/hwm: "
+                   << amrex::FabArrayBase::queryMemUsage("All") << " / "
+                   << amrex::FabArrayBase::queryMemUsageHWM("All") << '\n';
+}
+
 }
 
 /* Initialize lsm data structures */
@@ -31,6 +46,7 @@ NOAHMP::Init (const int& lev,
               const Real& dt)
 {
     BL_PROFILE_REGION("NOAHMP::Init");
+    FabArrayBase::RegionTag noahmp_init_tag("NOAHMP::Init");
 
     m_dt   = dt;
     m_geom = geom;
@@ -241,6 +257,7 @@ NOAHMP::Init (const int& lev,
 
     AMREX_ALWAYS_ASSERT(m_dt <= noahmpio_vect[0].DTBL);
 
+    PrintNoahmpArenaUsage("NOAHMP::Init");
     Print() << "Noah-MP initialization completed" << std::endl;
 
 };
@@ -281,6 +298,7 @@ NOAHMP::Advance_With_State (const int& lev,
                             const int& nstep)
 {
     BL_PROFILE_REGION("NOAHMP::Advance");
+    FabArrayBase::RegionTag noahmp_advance_tag("NOAHMP::Advance");
 
     // Verify we need to take another LSM step
     Real NOAH_time = static_cast<Real>(noahmpio_vect[0].itimestep-1) * static_cast<Real>(noahmpio_vect[0].DTBL);
@@ -303,6 +321,7 @@ NOAHMP::Advance_With_State (const int& lev,
 
     {
         BL_PROFILE_REGION("NOAHMP::Pack");
+        FabArrayBase::RegionTag noahmp_pack_tag("NOAHMP::Pack");
 
         for (MFIter mfi(cons_in, use_tiling); mfi.isValid(); ++mfi) {
             Box bx = mfi.tilebox();
@@ -353,10 +372,13 @@ NOAHMP::Advance_With_State (const int& lev,
                 break;
             }
         }
+
+        PrintNoahmpArenaUsage("NOAHMP::Pack");
     }
 
     {
         BL_PROFILE_REGION("NOAHMP::MPIExchange");
+        FabArrayBase::RegionTag noahmp_mpi_tag("NOAHMP::MPIExchange");
 
         int done = 0;
         Vector<MPI_Request> requests(2 * noahmp_partner_ranks.size());
@@ -397,6 +419,8 @@ NOAHMP::Advance_With_State (const int& lev,
             Vector<MPI_Status> statuses(requests.size());
             MPI_Waitall(static_cast<int>(requests.size()), requests.data(), statuses.data());
         }
+
+        PrintNoahmpArenaUsage("NOAHMP::MPIExchange");
     }
 
     // Keep the ERF-side Noah-MP timestep state in sync with the service-side
@@ -424,6 +448,7 @@ NOAHMP::Advance_With_State (const int& lev,
 
     {
         BL_PROFILE_REGION("NOAHMP::Unpack");
+        FabArrayBase::RegionTag noahmp_unpack_tag("NOAHMP::Unpack");
 
         // Reverse the mf_lo flow from amrex-spmd: receive into the pinned SPMD
         // layout first, then ParallelCopy back to ERF's native decomposition.
@@ -485,6 +510,8 @@ NOAHMP::Advance_With_State (const int& lev,
                 ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
             });
         }
+
+        PrintNoahmpArenaUsage("NOAHMP::Unpack");
     }
 #else
     bool use_tiling = TilingIfNotGPU();
@@ -534,6 +561,7 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Pack");
+            FabArrayBase::RegionTag noahmp_pack_tag("NOAHMP::Pack");
 
             // Copy forcing data from ERF to Noahmp.
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -568,6 +596,7 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Physics");
+            FabArrayBase::RegionTag noahmp_physics_tag("NOAHMP::Physics");
 
             // Call the noahmpio driver code. This runs the land model forcing for
             // each object in noahmpio_vect that represent a block in the domain.
@@ -577,6 +606,7 @@ NOAHMP::Advance_With_State (const int& lev,
 
         {
             BL_PROFILE_REGION("NOAHMP::Unpack");
+            FabArrayBase::RegionTag noahmp_unpack_tag("NOAHMP::Unpack");
 
             // Copy results from NoahmpIO back to temporary arrays
             LoopOnCpu(bx, [&] (int i, int j, int ) noexcept
@@ -627,6 +657,8 @@ NOAHMP::Advance_With_State (const int& lev,
             ALBSFCDIF_NIR(i,j,0) = noah_output_arr(ii,jj,0,NoahmpOutputComp::albsfcdif_nir);
         });
     }
+
+    PrintNoahmpArenaUsage("NOAHMP::Advance");
 #endif
 
     // Fill the ghost cells

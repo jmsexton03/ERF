@@ -10,7 +10,9 @@
 
 #include "ERF_EOS.H"
 #include "ERF.H"
+#include "AMReX_Arena.H"
 #include "AMReX_BLProfiler.H"
+#include "AMReX_FabArrayBase.H"
 #include "AMReX_buildInfo.H"
 #include "AMReX_Random.H"
 #include "AMReX_WriteEBSurface.H"
@@ -31,6 +33,19 @@
 #endif
 
 using namespace amrex;
+
+namespace {
+void
+PrintTaggedMemoryUsage (std::string const& label)
+{
+    amrex::Print() << "[" << label << "] FabArray tag bytes current/hwm: "
+                   << amrex::FabArrayBase::queryMemUsage(label) << " / "
+                   << amrex::FabArrayBase::queryMemUsageHWM(label) << '\n';
+    amrex::Print() << "[" << label << "] FabArray tag All current/hwm: "
+                   << amrex::FabArrayBase::queryMemUsage("All") << " / "
+                   << amrex::FabArrayBase::queryMemUsageHWM("All") << '\n';
+}
+}
 
 Real ERF::startCPUTime        = zero;
 Real ERF::previousCPUTimeUsed = zero;
@@ -622,6 +637,7 @@ ERF::Evolve ()
     for (int step = istep[0]; (step < max_step) && (start_time+cur_time < stop_time); ++step)
     {
         BL_PROFILE_REGION("ERF::CoarseStep");
+        FabArrayBase::RegionTag coarse_step_tag("ERF::CoarseStep");
 
         if (use_datetime) {
             Print() << "\n" << getTimestamp(start_time+cur_time, datetime_format)
@@ -734,6 +750,10 @@ ERF::Evolve ()
             MemProfiler::report(ss.str());
         }
 #endif
+
+        amrex::Print() << "[STEP " << step+1 << "] Arena usage" << '\n';
+        Arena::PrintUsage(true);
+        PrintTaggedMemoryUsage("ERF::CoarseStep");
 
         if (start_time+cur_time >= stop_time - Real(1.e-6)*dt[0]) break;
     }
