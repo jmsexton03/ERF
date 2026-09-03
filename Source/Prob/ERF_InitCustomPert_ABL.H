@@ -1,15 +1,18 @@
 
     ParmParse pp("prob");
 
+    // This file is #included into the body of Problem::init_custom_pert, which
+    // already holds a ParmParse("erf") named pp_erf -- reuse it.  Declaring a
+    // second one here shadowed it (-Wshadow), and the HIP and CUDA CI Report
+    // steps exit with the grepped warning count, so a single warning fails the
+    // job.  Reusing it also avoids a redundant ParmParse construction in a
+    // function called once per box.
     int deterministic_ic_pert = 0;
     int fix_random_seed = 0;
     long random_seed = -1;
-    {
-        amrex::ParmParse pp_erf("erf");
-        pp_erf.query("deterministic_ic_pert", deterministic_ic_pert);
-        pp_erf.query("fix_random_seed", fix_random_seed);
-        pp_erf.query("random_seed", random_seed);
-    }
+    pp_erf.query("deterministic_ic_pert", deterministic_ic_pert);
+    pp_erf.query("fix_random_seed", fix_random_seed);
+    pp_erf.query("random_seed", random_seed);
     const std::uint64_t ic_pert_seed = fix_random_seed
         ? std::uint64_t(1024)
         : ((random_seed >= 0) ? static_cast<std::uint64_t>(random_seed) : std::uint64_t(0));
