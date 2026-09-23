@@ -846,6 +846,10 @@ public:
 
     // One-shot latch so a misconfigured deck says so once rather than every step.
     bool m_warned_coupled_sst_declined = false;
+    // Same for the coverage summary and the out-of-range report: once per run,
+    // or every call at erf.v >= 2.
+    bool m_reported_coupled_sst_apply = false;
+    bool m_warned_coupled_sst_range = false;
 
 private:
 
