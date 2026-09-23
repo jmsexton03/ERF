@@ -846,10 +846,14 @@ public:
 
     // One-shot latch so a misconfigured deck says so once rather than every step.
     bool m_warned_coupled_sst_declined = false;
-    // Same for the coverage summary and the out-of-range report: once per run,
-    // or every call at erf.v >= 2.
-    bool m_reported_coupled_sst_apply = false;
-    bool m_warned_coupled_sst_range = false;
+    // Coverage summary: printed when the covered count changes (so once for a
+    // fixed grid), or every call at erf.v >= 2.
+    amrex::Long m_reported_coupled_sst_n_valid = -1;
+    // Out-of-range report: the worst extremes and NaN count already reported;
+    // it repeats only when a later call is worse. Start at the range bounds.
+    amrex::Real m_warned_coupled_sst_min = amrex::Real(260.0);
+    amrex::Real m_warned_coupled_sst_max = amrex::Real(320.0);
+    amrex::Long m_warned_coupled_sst_nan = 0;
 
 private:
 

@@ -1029,8 +1029,11 @@ List of Parameters
 | **amr.v**                  | verbosity of     | 0 or 1         | 0              |
 |                            | Amr.cpp          |                |                |
 +----------------------------+------------------+----------------+----------------+
-| **erf.v**                  | verbosity of     | 0 or 1         | 0              |
-|                            | ERF.cpp          |                |                |
+| **erf.v**                  | verbosity of     | 0, 1 or 2;     | 0              |
+|                            | ERF.cpp          | 2 also prints  |                |
+|                            |                  | the coupled SST|                |
+|                            |                  | summary every  |                |
+|                            |                  | exchange       |                |
 +----------------------------+------------------+----------------+----------------+
 | **erf.sum_interval**       | if               |                |                |
 |                            | :math:`> 0,`     |                |                |
